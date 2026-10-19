@@ -1,0 +1,116 @@
+name: CI
+
+# warehouse-floor-client depends on @warehouse/ui-kit via `file:../warehouse-ui-kit`
+# (no npm registry publish step yet). Like warehouse-console, CI checks out both
+# repos as SIBLING directories under $GITHUB_WORKSPACE so that relative path
+# resolves the same way it does on a contributor's machine.
+#
+# Job names (lint, test, typecheck, build, docs) are the branch-protection
+# contract and mirror warehouse-console. Do not rename them.
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: warehouse-floor-client
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: IQVO/warehouse-ui-kit
+          ref: develop
+          path: warehouse-ui-kit
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - run: npm ci && npm run build
+        working-directory: warehouse-ui-kit
+      - run: npm ci
+        working-directory: warehouse-floor-client
+      - run: npm run lint
+        working-directory: warehouse-floor-client
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: warehouse-floor-client
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: IQVO/warehouse-ui-kit
+          ref: develop
+          path: warehouse-ui-kit
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - run: npm ci && npm run build
+        working-directory: warehouse-ui-kit
+      - run: npm ci
+        working-directory: warehouse-floor-client
+      - run: npm test
+        working-directory: warehouse-floor-client
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: warehouse-floor-client
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: IQVO/warehouse-ui-kit
+          ref: develop
+          path: warehouse-ui-kit
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - run: npm ci && npm run build
+        working-directory: warehouse-ui-kit
+      - run: npm ci
+        working-directory: warehouse-floor-client
+      - run: npm run typecheck
+        working-directory: warehouse-floor-client
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          path: warehouse-floor-client
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: IQVO/warehouse-ui-kit
+          ref: develop
+          path: warehouse-ui-kit
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - run: npm ci && npm run build
+        working-directory: warehouse-ui-kit
+      - run: npm ci
+        working-directory: warehouse-floor-client
+      - run: npm run build
+        working-directory: warehouse-floor-client
+
+  # The console's `docs` job builds a Docusaurus site (npm ci + typecheck +
+  # build in docs/). This repo's docs/ is plain Markdown, so the equivalent
+  # gate is scripts/docs-check.mjs: zero dependencies, fails on a broken
+  # relative link, a missing H1, or a doc that docs/index.md does not list.
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - run: npm run docs:check
