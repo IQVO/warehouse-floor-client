@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # NOTE: the npm tree depends on file:../warehouse-ui-kit (a sibling repo).
+  # Dependabot cannot fetch path dependencies outside the repository, so an npm
+  # entry fails on every run (same as warehouse-console); security alerts are
+  # fixed with scoped npm overrides instead.
