@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { describeProblem, describeQueued, describeUnsent, type Message } from "../../api/problemMessages";
-import { fulfillmentApi, type Station, type Task } from "../../api/fulfillmentExecution";
+import { fulfillmentApi, type PickScanResult, type Station, type Task } from "../../api/fulfillmentExecution";
 import { useServices } from "../../app/servicesContext";
 import type { Outcome } from "../../lib/commands";
 import type { OutboxEntry } from "../../lib/outbox";
@@ -35,6 +35,7 @@ export function StationProvider({ children }: { children: ReactNode }) {
   }, [state]);
   const noticeSeq = useRef(0);
   const renewing = useRef(false);
+  const scanSeq = useRef(0);
   const lastRenewTry = useRef(Number.NEGATIVE_INFINITY);
 
   useEffect(() => {
@@ -61,7 +62,7 @@ export function StationProvider({ children }: { children: ReactNode }) {
       if (outcome.state === "problem") {
         const code = problemCode(outcome.problem);
         log.warn("command rejected", kind, outcome.status, code);
-        if (kind === "complete" && code === "task-already-completed") {
+        if ((kind === "complete" || kind === "break-case") && code === "task-already-completed") {
           // Either someone finished it, or our earlier attempt went through and its
           // answer was lost. Either way the operator's work is done: move on.
           setState((s) => (s.held?.task.id === meta.taskId ? { ...s, held: null } : s));
@@ -69,7 +70,7 @@ export function StationProvider({ children }: { children: ReactNode }) {
           return { ok: true, queued: false };
         }
         if (
-          (kind === "complete" || kind === "renew-lease") &&
+          (kind === "complete" || kind === "renew-lease" || kind === "pick-scan" || kind === "break-case") &&
           ["task-not-claimed", "task-not-owner", "task-not-found"].includes(code)
         ) {
           // The claim is gone: holding on to the task would only invite more errors.
@@ -122,6 +123,22 @@ export function StationProvider({ children }: { children: ReactNode }) {
         case "complete": {
           setState((s) => (s.held?.task.id === meta.taskId ? { ...s, held: null } : s));
           say({ tone: "success", what: `Task ${meta.taskId ?? "(unknown)"} completed.`, todo: "Pull the next task." });
+          break;
+        }
+        case "pick-scan": {
+          const r = outcome.data as PickScanResult | undefined;
+          if (r === undefined) break;
+          const left = r.plannedEaches - r.pickedEaches;
+          say({
+            tone: "success",
+            what: `Counted ${r.addedEaches} ${r.addedEaches === 1 ? "each" : "eaches"} (${r.level === "CASE" ? "case" : "item"} scan). ${r.pickedEaches} of ${r.plannedEaches} picked.`,
+            todo: left > 0 ? "Scan the next one." : "The pick is complete. Scan the order label, then complete the task.",
+          });
+          return { ok: true, queued: false, data: r };
+        }
+        case "break-case": {
+          setState((s) => (s.held?.task.id === meta.taskId ? { ...s, held: null } : s));
+          say({ tone: "success", what: `Case broken. Task ${meta.taskId ?? "(unknown)"} completed.`, todo: "Pull the next task." });
           break;
         }
         default:
@@ -222,6 +239,20 @@ export function StationProvider({ children }: { children: ReactNode }) {
         const taskId = held.task.id;
         return run("complete", () => api.completeTask(taskId, station.id, confirmation), { taskId, stationId: station.id });
       },
+      scanPick: (gtin) => {
+        const { station, held } = stateRef.current;
+        if (station === null || held === null) return Promise.resolve({ ok: false, queued: false });
+        const taskId = held.task.id;
+        scanSeq.current += 1;
+        const scanId = `${Date.now().toString(36)}-${scanSeq.current}`;
+        return run("pick-scan", () => api.confirmPickScan(taskId, station.id, gtin, scanId), { taskId, stationId: station.id, gtin });
+      },
+      breakCase: () => {
+        const { station, held } = stateRef.current;
+        if (station === null || held === null) return Promise.resolve({ ok: false, queued: false });
+        const taskId = held.task.id;
+        return run("break-case", () => api.breakCase(taskId, station.id), { taskId, stationId: station.id });
+      },
       retryNow: () => void runner.flush(),
     }),
     [state, now, busy, notice, renewFailing, heldId, api, run, runner],
@@ -242,6 +273,10 @@ function labelFor(kind: string): string {
       return "request for the next task";
     case "complete":
       return "completion";
+    case "pick-scan":
+      return "scan";
+    case "break-case":
+      return "case break";
     default:
       return "action";
   }

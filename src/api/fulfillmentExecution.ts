@@ -9,8 +9,13 @@ import type { CommandRunner, Outcome } from "../lib/commands";
  */
 export const FULFILLMENT_BASE = "/api/fulfillment-execution";
 
-/** Every value of the OpenAPI `AnyTaskType`. */
-export const TASK_TYPES = ["PICK", "PACK", "SLAM", "REBIN", "DISPATCH", "ARRIVAL", "RELOCATE", "REPLENISH"] as const;
+/**
+ * Every value of the OpenAPI `AnyTaskType`, plus BREAK_CASE (ADR 0054): the
+ * service creates and completes it (POST /tasks/{id}/break-case) but
+ * `AnyTaskType` does not list it yet, so claim-next is not offered for it
+ * (see CLAIMABLE_TASK_TYPES and docs/api-contract.md).
+ */
+export const TASK_TYPES = ["PICK", "PACK", "SLAM", "REBIN", "DISPATCH", "ARRIVAL", "RELOCATE", "REPLENISH", "BREAK_CASE"] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
 /**
@@ -61,6 +66,16 @@ export interface Task {
   leaseExpiry?: string | null;
   relocation?: TaskRelocation;
   replenishment?: TaskReplenishment;
+}
+
+/** PickScanResult: every quantity in eaches. `level` is the pack level of the GTIN that was scanned. */
+export interface PickScanResult {
+  scannedGtin: string;
+  sku: string;
+  level: "EACH" | "INNER" | "CASE" | "PALLET";
+  addedEaches: number;
+  pickedEaches: number;
+  plannedEaches: number;
 }
 
 /** The optional part of CompleteTaskRequest (RELOCATE / REPLENISH only). */
@@ -132,6 +147,36 @@ export function fulfillmentApi(runner: CommandRunner) {
         path: `${FULFILLMENT_BASE}/tasks/${seg(taskId)}/renew-lease`,
         body: { stationId },
         persist: false,
+        meta: { taskId, stationId },
+      });
+    },
+
+    /**
+     * One scan of an each or case GTIN against a PICK task. `gtin` is the
+     * 14-digit form; `count` is packs scanned (eaches for an EACH GTIN, cases
+     * for a CASE GTIN: the server multiplies, the client never does).
+     *
+     * Each physical scan is its own action (`scanId` makes the dedupe id
+     * unique), so two scans of the same case count twice; a scan that was
+     * saved offline or whose answer was lost is replayed with ITS key.
+     */
+    confirmPickScan(taskId: string, stationId: string, gtin: string, scanId: string, count = 1): Promise<Outcome<PickScanResult>> {
+      return runner.submit<PickScanResult>({
+        kind: "pick-scan",
+        path: `${FULFILLMENT_BASE}/tasks/${seg(taskId)}/scans`,
+        body: { stationId, gtin, count },
+        dedupeId: `pick-scan:${taskId}:${scanId}`,
+        meta: { taskId, stationId, gtin },
+      });
+    },
+
+    /** 204: the sealed case was broken and the task completed. One logical action per task, so a re-tap or a reload reuses the key. */
+    breakCase(taskId: string, stationId: string): Promise<Outcome<undefined>> {
+      return runner.submit<undefined>({
+        kind: "break-case",
+        path: `${FULFILLMENT_BASE}/tasks/${seg(taskId)}/break-case`,
+        body: { stationId },
+        dedupeId: `break-case:${taskId}`,
         meta: { taskId, stationId },
       });
     },
