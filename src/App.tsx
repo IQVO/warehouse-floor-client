@@ -6,6 +6,8 @@ import { ServicesProvider } from "./app/ServicesProvider";
 import { createServices, useServices, type Services } from "./app/servicesContext";
 import { StationProvider } from "./features/station/StationProvider";
 import { StationScreen } from "./features/station/StationScreen";
+import { ReceivingListScreen } from "./features/receiving/ReceivingListScreen";
+import { ReceivingScreen } from "./features/receiving/ReceivingScreen";
 import { TaskScreen } from "./features/task/TaskScreen";
 
 /** Routes inside the providers + router; tests mount this under a MemoryRouter. */
@@ -15,6 +17,8 @@ export function AppRoutes() {
       <Route element={<Layout />}>
         <Route index element={<StationScreen />} />
         <Route path="task" element={<TaskScreen />} />
+        <Route path="receiving" element={<ReceivingListScreen />} />
+        <Route path="receiving/:receiptId" element={<ReceivingScreen />} />
         <Route path="*" element={<NotFoundScreen />} />
       </Route>
     </Routes>

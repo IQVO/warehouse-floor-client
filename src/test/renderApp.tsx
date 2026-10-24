@@ -48,7 +48,7 @@ export function createHarness(options: { store?: MemoryStore; online?: boolean; 
     // Tests drive replays explicitly (or through the online event); keep the interval out of the way.
     retryIntervalMs: 3_600_000,
   });
-  return { services: createServices({ store, outbox, connectivity, runner }), store, outbox, connectivity, fetchStub };
+  return { services: createServices({ store, outbox, connectivity, runner, fetchFn: () => fetchStub as unknown as typeof fetch }), store, outbox, connectivity, fetchStub };
 }
 
 /** Pre-load what a previous page load would have persisted. */
