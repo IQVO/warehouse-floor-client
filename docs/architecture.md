@@ -22,6 +22,8 @@ fetch("/api/<context>/...")  ---->  Kong  ---->  owning context
 - **Applying outcomes in one place.** `StationProvider.apply` handles an answer whether it arrived directly or from an outbox replay minutes later.
 - **UI kit.** Layout is `@warehouse/ui-kit`'s `AppShell` and `Card`/`StatusPill`, with the kit's design tokens (`--wh-*`); `src/styles/floor.css` only adds touch-target sizing and the floor-specific banners.
 
+- **Reads are not commands.** The receiving screens `GET` receipts and label data with `getJson` (`src/api/inboundReceiving.ts`) through `Services.fetchFn`; only writes go through the runner and outbox. Receiving has its own client (`inboundReceivingApi`) and its own notices; it does not use `StationProvider`.
+
 ## Runtime dependencies
 
 `react`, `react-dom`, `react-router-dom`, `@warehouse/ui-kit`: the same four as warehouse-console. The service worker is hand-written (see the README for why).

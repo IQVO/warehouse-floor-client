@@ -35,6 +35,7 @@ npm ci
 STUB_LEASE_MS=20000 npm run stub-api &                      # :8787
 FLOOR_API_TARGET=http://localhost:8787 npm run dev &        # :5174
 npm run e2e:station                                         # headless Chromium
+npm run e2e:receiving                                       # receiving dock against the stub (carton, over-limit, unlabelled, lost answer)
 E2E_MODE=real npm run e2e:station                           # against Kong (needs the cluster); never completes real work
 ```
 
