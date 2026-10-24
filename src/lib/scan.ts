@@ -9,12 +9,14 @@ export const MAX_SCAN_LENGTH = 128;
 
 /**
  * Cleans a raw scan: drops every control character (CR, LF, TAB, ESC, NUL...),
+ * EXCEPT GS (0x1D): the FNC1 separator of a GS1-128 element string, without which a
+ * variable-length lot (AI 10) cannot be told from the AI that follows it,
  * trims, and refuses oversized input (a stuck key or a pasted blob is not a
  * barcode). Returns "" for anything that is not a usable scan.
  */
 export function normalizeScan(raw: string): string {
   // eslint-disable-next-line no-control-regex
-  const cleaned = raw.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, "").trim();
+  const cleaned = raw.replace(/[\u0000-\u001c\u001e-\u001f\u007f-\u009f\u2028\u2029]/g, "").trim();
   return cleaned.length > MAX_SCAN_LENGTH ? "" : cleaned;
 }
 
