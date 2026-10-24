@@ -12,6 +12,16 @@
 // a key sent with a different body. A client that passes against this stub
 // therefore sends a key on every command and reuses it on retries.
 //
+// It also stands in for inbound-receiving's receiving-dock endpoints under
+// /api/inbound-receiving (seed receipt rcpt-stub-1): GET /receipts, GET
+// /receipts/{id}, POST /receipts/{id}/scans and /close, GET
+// /receipts/{id}/cartons/{lpn}/label. Seeded scans: SSCC 340123450000000017
+// (SKU-1, 20 eaches), 340123450000000024 (a MIXED carton: SKU-1 x4, SKU-2 x3),
+// 340123450000000031 (over the weight limit -> CartonOverLimit, still accepted);
+// case GTIN 13041090004824 (12 eaches per case, no carton label -> UnlabelledCarton
+// and an internal LPN); each GTIN 03041090004827 (SKU-1). A repeated SSCC is a
+// 200 accepted=false DuplicateSscc. Quantities are multiplied HERE, like the server.
+//
 // Test controls (not part of the real API):
 //   POST /__stub/reset               clear all state, reseed tasks
 //   POST /__stub/tasks               add a task (JSON: a TaskResponse-like object)
@@ -23,8 +33,16 @@ const PORT = Number(process.env.STUB_PORT ?? 8787);
 const LEASE_MS = Number(process.env.STUB_LEASE_MS ?? 300_000);
 const BASE = "/api/fulfillment-execution";
 const ERR = "https://errors.fulfillment-execution.warehouse-systems.dev";
+const IR = "/api/inbound-receiving";
+const IR_ERR = "https://errors.inbound-receiving.warehouse-systems.dev";
+const CASE_UNITS = 12;
+const SSCC_CARTONS = {
+  "340123450000000017": { kind: "HOMOGENEOUS_CASE", contents: [{ lineNo: 1, sku: "SKU-1", gtin: "03041090004827", qty: 20 }] },
+  "340123450000000024": { kind: "MIXED", contents: [{ lineNo: 1, sku: "SKU-1", gtin: "03041090004827", qty: 4 }, { lineNo: 2, sku: "SKU-2", gtin: "03041090004828", qty: 3 }] },
+  "340123450000000031": { kind: "HOMOGENEOUS_CASE", overLimit: true, contents: [{ lineNo: 1, sku: "SKU-1", gtin: "03041090004827", qty: 10 }] },
+};
 
-let stations, tasks, idem, log, dropNext;
+let stations, tasks, idem, log, dropNext, receipt, lpnSeq;
 
 function seed() {
   stations = new Map();
@@ -32,6 +50,21 @@ function seed() {
   log = [];
   dropNext = false;
   tasks = new Map();
+  lpnSeq = 0;
+  receipt = {
+    receiptId: "rcpt-stub-1",
+    asnNumber: "ASN-1001",
+    doorCode: "WH1-DOCK-IN-01",
+    state: "Open",
+    lines: [
+      { lineNo: 1, sku: "SKU-1", expectedQty: 40, receivedGood: 0, receivedDamaged: 0 },
+      { lineNo: 2, sku: "SKU-2", expectedQty: 5, receivedGood: 0, receivedDamaged: 0 },
+    ],
+    openedAt: "2026-10-24T08:00:00Z",
+    discrepancies: [],
+    version: 1,
+    cartons: [],
+  };
   const add = (t) => tasks.set(t.id, { status: "PENDING", fragile: false, giftWrap: false, ...t });
   add({ id: "20260101T120000.000000000", type: "PICK", cpt: "2026-01-01T18:00:00Z", orderRef: "order-42", requiredCapabilities: ["pick"] });
   add({ id: "20260101T120100.000000000", type: "PICK", cpt: "2026-01-01T19:00:00Z", orderRef: "order-43", requiredCapabilities: ["pick"] });
@@ -56,8 +89,99 @@ const view = (t) => {
 const stationView = (s) => ({ id: s.id, capabilities: s.capabilities, occupied: s.occupant !== null, ...(s.locationCode ? { locationCode: s.locationCode } : {}) });
 const leaseActive = (t) => t.status === "CLAIMED" && Date.parse(t.leaseExpiry) > Date.now();
 
+const receiptView = (r) => {
+  const { cartons: _c, ...rest } = r;
+  return rest;
+};
+const irProblem = (res, status, slug, title, instance) => send(res, status, { type: `${IR_ERR}/${slug}`, title, status, detail: `usecases: ${slug}`, instance });
+const carton = (lpn, kind, contents, sscc) => ({
+  lpn, ...(sscc ? { sscc } : {}), kind, status: "Accepted", sealed: true, receivedAt: new Date().toISOString(),
+  contents: contents.map((c) => ({ ...c, condition: "Good" })),
+});
+const book = (r, sku, qty) => {
+  const line = r.lines.find((l) => l.sku === sku);
+  if (line) line.receivedGood += qty;
+};
+
+function handleReceiving(path, method, body, res) {
+  if (method === "GET" && path === `${IR}/receipts`) return send(res, 200, { items: [receiptView(receipt)] });
+  let m = path.match(new RegExp(`^${IR}/receipts/([^/]+)(?:/(scans|close|cartons/([^/]+)/label))?$`));
+  if (!m) return irProblem(res, 404, "resource-not-found", "No such route", path);
+  const [, rawId, sub, rawLpn] = m;
+  if (decodeURIComponent(rawId) !== receipt.receiptId) return irProblem(res, 404, "receipt-not-found", "Receipt not found", path);
+  if (method === "GET" && sub === undefined) return send(res, 200, receiptView(receipt));
+  if (method === "GET" && rawLpn !== undefined) {
+    const c = receipt.cartons.find((x) => x.lpn === decodeURIComponent(rawLpn));
+    if (!c) return irProblem(res, 404, "carton-not-found", "Carton not found", path);
+    const skus = [...new Set(c.contents.map((x) => x.sku))];
+    return send(res, 200, {
+      lpn: c.lpn, symbology: "CODE128", humanReadable: c.sscc ? `(00)${c.sscc}` : c.lpn,
+      ...(skus.length === 1 ? { sku: skus[0] } : {}), units: c.contents.reduce((n, x) => n + x.qty, 0), receivedAt: c.receivedAt,
+    });
+  }
+  if (method !== "POST") return irProblem(res, 404, "resource-not-found", "No such route", path);
+  if (receipt.state === "Closed") return irProblem(res, 409, "receipt-closed", "Receipt is closed", path);
+  if (sub === "close") {
+    receipt.state = "Closed";
+    receipt.closedAt = new Date().toISOString();
+    receipt.discrepancies = receipt.lines.flatMap((l) => {
+      const got = l.receivedGood + l.receivedDamaged;
+      const base = { lineNo: l.lineNo, sku: l.sku, expectedQty: l.expectedQty, receivedQty: got, damagedQty: l.receivedDamaged };
+      return got < l.expectedQty ? [{ ...base, kind: "Short" }] : got > l.expectedQty ? [{ ...base, kind: "Over" }] : [];
+    });
+    receipt.version += 1;
+    return send(res, 200, receiptView(receipt));
+  }
+  // POST .../scans
+  const { kind, id, qty, countedContents } = body ?? {};
+  if (body?.scan === undefined && (!kind || !id)) return irProblem(res, 400, "invalid-scan", "Invalid scan", path);
+  const result = (status, accepted, cartons, discrepancies) => {
+    receipt.version += 1;
+    return send(res, status, { kind, accepted, lines: receipt.lines, cartons, discrepancies, version: receipt.version });
+  };
+  if (kind === "SSCC") {
+    const def = SSCC_CARTONS[id];
+    if (!def) return result(200, false, [], [{ kind: "UnexpectedCarton", sscc: id }]);
+    if (receipt.cartons.some((c) => c.sscc === id)) return result(200, false, [], [{ kind: "DuplicateSscc", sscc: id }]);
+    if (countedContents !== undefined && def.kind !== "MIXED") return irProblem(res, 422, "counted-contents-not-mixed", "Counted contents only apply to a MIXED carton", path);
+    const findings = [];
+    let contents = def.contents;
+    if (countedContents !== undefined) {
+      contents = def.contents.map((c) => ({ ...c, qty: countedContents.find((x) => x.sku === c.sku)?.qty ?? 0 }));
+      for (const c of def.contents) {
+        const counted = countedContents.find((x) => x.sku === c.sku)?.qty ?? 0;
+        if (counted !== c.qty) findings.push({ kind: "MixedCartonContentMismatch", sscc: id, expected: `${c.sku}:${c.qty}`, actual: `${c.sku}:${counted}` });
+      }
+    }
+    if (def.overLimit) findings.push({ kind: "CartonOverLimit", sscc: id, expected: "grossWeightG:25000", actual: "grossWeightG:31000" });
+    const c = carton(id, def.kind, contents, id);
+    receipt.cartons.push(c);
+    for (const x of contents) book(receipt, x.sku, x.qty);
+    return result(201, true, [c], findings);
+  }
+  if (kind === "CASE_GTIN" && id === "13041090004824") {
+    const cases = qty && qty > 0 ? qty : 1;
+    const out = [];
+    for (let i = 0; i < cases; i += 1) {
+      lpnSeq += 1;
+      const c = carton(`LPN-STUB${String(lpnSeq).padStart(6, "0")}`, "HOMOGENEOUS_CASE", [{ lineNo: 1, sku: "SKU-1", gtin: "03041090004827", qty: CASE_UNITS }]);
+      receipt.cartons.push(c);
+      out.push(c);
+    }
+    book(receipt, "SKU-1", cases * CASE_UNITS);
+    return result(201, true, out, [{ kind: "UnlabelledCarton" }]);
+  }
+  if (kind === "EACH_GTIN" && id === "03041090004827") {
+    book(receipt, "SKU-1", qty && qty > 0 ? qty : 1);
+    return result(201, true, [], []);
+  }
+  if (kind === "CASE_GTIN" || kind === "EACH_GTIN") return result(200, false, [], [{ kind: "UnknownGtin", actual: id }]);
+  return irProblem(res, 422, "scan-kind-mismatch", "Scan kind mismatch", path);
+}
+
 function handle(path, method, body, res) {
   const instance = path;
+  if (path.startsWith(`${IR}/`)) return handleReceiving(path, method, body, res);
   if (method === "POST" && path === `${BASE}/stations`) {
     if (!body?.stationId || !Array.isArray(body.capabilities) || body.capabilities.length === 0) {
       return problem(res, 400, "invalid-request", "The request is malformed or missing a required field", "stationId and capabilities are required");

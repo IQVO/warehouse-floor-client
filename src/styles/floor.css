@@ -102,3 +102,18 @@
 .floor-lease--warning .floor-lease__time { color: var(--wh-color-status-warning); }
 .floor-lease--danger .floor-lease__time { color: var(--wh-color-status-danger); }
 .floor-lease__note { flex: 1 1 200px; color: var(--wh-color-text-muted); font-size: var(--wh-font-size-sm); }
+
+/* ---- receiving dock ---- */
+.floor-modes { border: 0; padding: 0; margin: 0; display: flex; gap: var(--wh-space-3); flex-wrap: wrap; }
+.floor-table { width: 100%; border-collapse: collapse; }
+.floor-table th, .floor-table td { text-align: left; padding: var(--wh-space-2) var(--wh-space-3); border-bottom: 1px solid var(--wh-color-border, #ccc); }
+.floor-label { border: 2px dashed var(--wh-color-border, #888); padding: var(--wh-space-4); margin-top: var(--wh-space-4); }
+.floor-label__text { font-size: var(--wh-font-size-xl); font-weight: 700; margin: 0 0 var(--wh-space-3); word-break: break-all; }
+
+/* Printing a carton label: only the label sheet comes out. */
+@media print {
+  body * { visibility: hidden !important; }
+  .floor-label, .floor-label * { visibility: visible !important; }
+  .floor-label { position: absolute; left: 0; top: 0; width: 100%; border: none; margin: 0; }
+  .floor-label__print { display: none !important; }
+}

@@ -45,3 +45,19 @@ The exact text lives in `src/api/problemMessages.ts` and is covered by `src/api/
 ## Cluster routing (not wired by this repo)
 
 In the kind cluster Kong listens on `http://localhost:8000` and the web gateway on `http://localhost:80` serves HTML only (it has no `/api` route, and answers any unknown path with the console's `index.html`). So `FLOOR_API_TARGET` defaults to Kong at `:8000` in dev. Serving this app in the cluster needs the edge to route `/api/*` to Kong on the same host; that infra change belongs to warehouse-infra and is not part of this repo.
+
+# API contract (inbound-receiving)
+
+Source of truth: `apis/openapi.yaml` in IQVO/inbound-receiving (`origin/develop`). All paths are under `/api/inbound-receiving`. Flow, copy per finding and retry rules: [Receiving flow](receiving-flow.md).
+
+| Action | Request | Success | Notes |
+|---|---|---|---|
+| List open receipts | `GET /receipts?state=Open&limit=50` | `200` `{items: Receipt[], nextCursor?}` | first page only |
+| Get a receipt | `GET /receipts/{receiptId}` | `200` `Receipt` | |
+| Receive by scan | `POST /receipts/{receiptId}/scans` `{kind, id, qty?, lot?, expiry?, countedContents?}` | `201` accepted / `200` refused with findings, both `ScanResult` | `Idempotency-Key` required. `qty` = cases for `CASE_GTIN`, eaches for `EACH_GTIN`. Fields exactly as `ReceiveScanRequest` (the raw-`scan` form is not used) |
+| Close | `POST /receipts/{receiptId}/close` (no body) | `200` `Receipt` (Closed, with Short/Over/Damaged) | key optional in the spec, sent anyway |
+| Carton label data | `GET /receipts/{receiptId}/cartons/{lpn}/label` | `200` `{lpn, symbology:"CODE128", humanReadable, sku?, units, receivedAt}` | `404 carton-not-found` |
+
+Errors are `application/problem+json`, `type` = `https://errors.inbound-receiving.warehouse-systems.dev/<slug>`; the client keys on `<slug>` and never shows `detail`. Copy for the slugs a dock operator can meet is in `src/api/receivingMessages.ts` (`receipt-not-found`, `invalid-receipt-id`, `receipt-closed`, `scan-kind-mismatch`, `invalid-sscc`, `invalid-gtin`, `unsupported-gtin`, `unsupported-pack-level`, `invalid-scan(-kind)`, `invalid-cases`, `invalid-quantity`, `invalid-counted-contents`, `counted-contents-not-mixed`, `counted-sku-unknown`, `carton-not-found`, `version-mismatch`, `concurrent-modification`, `dependency-unavailable`, `malformed-request`); idempotency, 5xx and gateway answers fall back to the shared table above. `429/502/503/504` are retried, not shown.
+
+Idempotency: inbound-receiving **does** de-duplicate `POST /scans` by `Idempotency-Key` (per its OpenAPI); see [Receiving flow](receiving-flow.md#commands-keys-and-retries). Spec observation: its example SSCC has an invalid check digit.

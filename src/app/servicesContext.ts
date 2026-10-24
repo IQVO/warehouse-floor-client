@@ -10,6 +10,8 @@ export interface Services {
   outbox: Outbox;
   connectivity: Connectivity;
   runner: CommandRunner;
+  /** Plain GETs (reads are not commands). Looked up per call so a test can swap fetch. */
+  fetchFn: () => typeof fetch;
   /** Wall clock, injectable for the lease countdown. */
   now: () => number;
 }
@@ -19,8 +21,9 @@ export function createServices(overrides: Partial<Services> = {}): Services {
   const outbox = overrides.outbox ?? new Outbox(store);
   const connectivity = overrides.connectivity ?? new Connectivity();
   const now = overrides.now ?? Date.now;
-  const runner = overrides.runner ?? new CommandRunner({ outbox, connectivity, now });
-  return { store, outbox, connectivity, runner, now };
+  const fetchFn = overrides.fetchFn ?? (() => globalThis.fetch.bind(globalThis));
+  const runner = overrides.runner ?? new CommandRunner({ outbox, connectivity, now, fetchFn });
+  return { store, outbox, connectivity, runner, fetchFn, now };
 }
 
 export const ServicesContext = createContext<Services | null>(null);

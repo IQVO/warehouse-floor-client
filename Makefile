@@ -29,6 +29,7 @@ stub-api:
 # Drive the station flow in headless Chromium against E2E_BASE (default http://localhost:5174).
 e2e:
 	npm run e2e:station
+	npm run e2e:receiving
 # Needs the sibling checkout: ../warehouse-ui-kit
 image:
 	docker build --build-context uikit=../warehouse-ui-kit -t warehouse-floor-client .
