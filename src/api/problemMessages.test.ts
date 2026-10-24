@@ -24,6 +24,16 @@ describe("describeProblem", () => {
     "not-relocation-task",
     "replenishment-confirmation-required",
     "invalid-replenishment-confirmation",
+    "unknown-gtin",
+    "invalid-scanned-gtin",
+    "scan-sku-mismatch",
+    "scan-level-mismatch",
+    "pick-over-quantity",
+    "no-pick-plan",
+    "case-break-rejected",
+    "not-case-break-task",
+    "case-break-completion-required",
+    "case-break-unavailable",
     "internal-error",
   ])("%s has a what and a to-do and never echoes the engineer-facing detail", (slug) => {
     const m = describeProblem(p(slug, 409, "Title", "usecases: engineer wording"));
