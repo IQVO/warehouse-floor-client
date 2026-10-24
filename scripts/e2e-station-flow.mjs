@@ -52,6 +52,18 @@ async function wedgeScan(code) {
   await page.keyboard.press("Enter");
 }
 
+/** Like wedgeScan, for codes holding control characters (the GS1-128 GS separator, 0x1D) that key presses cannot type. */
+async function wedgeScanRaw(code) {
+  await page.locator("input.floor-scan__input").focus();
+  await page.keyboard.insertText(code);
+  await page.keyboard.press("Enter");
+}
+
+const GS = "\u001d";
+const SKU1_EACH_EAN13 = "3041090004827"; // 14-digit 03041090004827
+const SKU1_CASE_ITF14 = "13041090004824"; // a case of 12 of SKU-1
+const SKU2_EACH_EAN13 = "4006381333931"; // another product
+
 async function registerAndCheckIn(stationId, badge) {
   await page.goto(BASE + "/");
   await page.getByLabel("Station ID").fill(stationId);
@@ -159,6 +171,120 @@ async function stubFlow() {
   void keyed;
 }
 
+const pickScans = async () => (await stubLog()).filter((e) => e.path.endsWith("/scans"));
+
+/** R14 pick side: case pick by GS1-128 / ITF-14 scans, with refusals, an offline scan and a lost answer. */
+async function casePickFlow() {
+  await stub("reset");
+  await page.evaluate(() => localStorage.clear());
+  const station = `floor-e2e-case-${Date.now()}`;
+  // 24 eaches planned = 2 cases of 12, picked as CASE.
+  await stub("tasks", { id: "case-pick-1", type: "PICK", cpt: "2026-01-01T00:00:00Z", orderRef: "order-61", requiredCapabilities: ["pick"], pick: { sku: "SKU-1", plannedEaches: 24, unit: "CASE" } });
+  await registerAndCheckIn(station, "worker-42");
+  await page.getByRole("button", { name: "Pick" }).click();
+  await page.getByRole("heading", { name: /PICK task/ }).waitFor();
+  await page.mouse.click(5, 400);
+
+  // refused on the device: no request leaves
+  await wedgeScan("3041090004828"); // bad check digit
+  await page.getByText(/misread/).waitFor();
+  await wedgeScan("340123450000000017"); // an SSCC label
+  await page.getByText(/carton \(SSCC\) label/).waitFor();
+  expect((await pickScans()).length === 0, "a bad check digit and an SSCC were refused on the device (no request sent)");
+
+  // the server refuses the each-EAN printed on a case, and another product
+  await wedgeScan(SKU1_EACH_EAN13);
+  await page.getByText(/case where single items are picked/).waitFor();
+  await wedgeScan(SKU2_EACH_EAN13);
+  await page.getByText(/not the item for this pick/).waitFor();
+  const refused = await pickScans();
+  expect(refused.length === 2 && refused[0].body.gtin === "03041090004827" && refused[0].body.count === 1, "scan-level-mismatch and scan-sku-mismatch came back as plain words (14-digit GTIN, count 1 sent)");
+  await shot("9-case-pick-refused");
+
+  // GS1-128 case label with GS-separated lot and expiry (AI 01, 10, 17): the lot is parsed, only the GTIN is sent
+  await wedgeScanRaw(`]C101${SKU1_CASE_ITF14}10LOT-A1B2${GS}17261231`);
+  await page.getByText(/Picked 12 of 24 eaches/).waitFor();
+  // a lost answer: applied by the server, cut before the client heard; the client keeps the key and replays it
+  await stub("drop-next-response");
+  await wedgeScan(`]I1${SKU1_CASE_ITF14}`);
+  await page.getByText(/1 scan is saved on this device/).waitFor();
+  const savedScan = (await page.evaluate(() => JSON.parse(localStorage.getItem("wfc.outbox.v1") ?? "[]")))[0];
+  expect(savedScan?.kind === "pick-scan" && savedScan.body.gtin === SKU1_CASE_ITF14, "the unanswered scan is persisted in the outbox with its body");
+  await page.getByText(/Picked 24 of 24 eaches/).waitFor({ timeout: 15000 });
+  const scans = await pickScans();
+  const lost = scans.filter((e) => e.key === savedScan.key);
+  expect(lost.length === 2 && lost[0].replayed === false && lost[1].replayed === true, "the lost scan was replayed with the SAME Idempotency-Key and answered from the server's stored reply (counted once)");
+  expect(new Set(scans.filter((e) => !e.replayed).map((e) => e.key)).size === scans.filter((e) => !e.replayed).length, "every distinct physical scan got its own key");
+
+  // a third case would pick more than planned
+  await wedgeScan(`]I1${SKU1_CASE_ITF14}`);
+  await page.getByText(/more than this task asks for/).waitFor();
+  await shot("10-case-pick-done");
+
+  // the order label unlocks Complete after the item scans
+  await wedgeScan("order-61");
+  await page.getByRole("button", { name: "Complete task" }).waitFor();
+  await page.getByRole("button", { name: "Complete task" }).click();
+  await page.getByText(`Task case-pick-1 completed.`).waitFor();
+  expect(true, "case pick completed after the order-label scan");
+
+  // offline scan on a second pick: saved, then sent once on reconnect with its key
+  await stub("tasks", { id: "each-pick-1", type: "PICK", cpt: "2026-01-02T00:00:00Z", orderRef: "order-62", requiredCapabilities: ["pick"], pick: { sku: "SKU-1", plannedEaches: 12, unit: "EACH" } });
+  await page.getByRole("link", { name: "Pull the next task" }).click();
+  await page.getByRole("button", { name: "Pick" }).click();
+  await page.getByRole("heading", { name: /PICK task/ }).waitFor();
+  await page.mouse.click(5, 400);
+  await context.setOffline(true);
+  await page.getByText("You are offline").waitFor();
+  const beforeOffline = (await pickScans()).length;
+  await wedgeScan(SKU1_EACH_EAN13);
+  await page.getByText(/1 scan is saved on this device/).waitFor();
+  expect((await pickScans()).length === beforeOffline, "an offline scan sent nothing");
+  const offlineKey = (await page.evaluate(() => JSON.parse(localStorage.getItem("wfc.outbox.v1") ?? "[]")))[0]?.key;
+  await context.setOffline(false);
+  await page.getByText(/Picked 1 of 12 eaches/).waitFor({ timeout: 15000 }).catch(() => {});
+  await page.waitForFunction(() => localStorage.getItem("wfc.outbox.v1") === "[]", null, { timeout: 15000 });
+  const sent = (await pickScans()).filter((e) => e.key === offlineKey);
+  expect(sent.length === 1 && sent[0].body.gtin === "03041090004827", "on reconnect the saved each scan was sent once, with its saved key");
+  await shot("11-offline-scan-sent");
+}
+
+/** R14: BREAK_CASE screen; the case break survives a lost answer and a reload with its Idempotency-Key. */
+async function breakCaseFlow() {
+  await stub("reset");
+  await page.evaluate(() => localStorage.clear());
+  const station = `floor-e2e-break-${Date.now()}`;
+  await stub("tasks", { id: "break-1", type: "BREAK_CASE", cpt: "2026-01-01T00:00:00Z", orderRef: "order-63", requiredCapabilities: ["pick"] });
+  await registerAndCheckIn(station, "worker-42");
+  // claim-next does not offer BREAK_CASE (AnyTaskType); the stub leases it the way the pool would.
+  const leased = await (await stub("claim", { taskId: "break-1", stationId: station })).json();
+  await page.evaluate(
+    ([task]) => {
+      const s = JSON.parse(localStorage.getItem("wfc.station.v1"));
+      s.held = { task, leaseDurationMs: 300000, leaseExpiresAt: Date.now() + 300000 };
+      localStorage.setItem("wfc.station.v1", JSON.stringify(s));
+    },
+    [leased],
+  );
+  await page.reload();
+  await page.goto(BASE + "/task");
+  await page.getByRole("heading", { name: /BREAK_CASE task/ }).waitFor();
+  expect((await page.getByRole("button", { name: "Complete task" }).count()) === 0, "a BREAK_CASE task has no plain Complete button (the service refuses it)");
+  await shot("12-break-case");
+
+  await stub("drop-next-response");
+  await page.getByRole("button", { name: "Break case" }).click();
+  await page.getByText("Case break saved on this device.").waitFor();
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("wfc.outbox.v1") ?? "[]"));
+  expect(saved.length === 1 && saved[0].kind === "break-case", "the unanswered case break is persisted in the outbox");
+  await page.reload();
+  await page.getByText("You are not holding a task.").waitFor({ timeout: 15000 });
+  const breaks = (await stubLog()).filter((e) => e.path.endsWith("/break-case"));
+  expect(breaks.length === 2 && breaks.every((e) => e.key === saved[0].key) && breaks[1].replayed === true, "the case break was replayed after reload with the SAME Idempotency-Key (applied once)");
+  expect(breaks[0].body.stationId === station && Object.keys(breaks[0].body).length === 1, "break-case body is {stationId} only");
+  await shot("13-break-case-done");
+}
+
 async function realFlow() {
   const station = `floor-e2e-${Date.now()}`;
   const health = await page.request.get(BASE + `${API}/healthz`);
@@ -189,7 +315,12 @@ async function realFlow() {
 }
 
 try {
-  await (MODE === "real" ? realFlow() : stubFlow());
+  if (MODE === "real") await realFlow();
+  else {
+    await stubFlow();
+    await casePickFlow();
+    await breakCaseFlow();
+  }
   console.log(`\nDONE  ${MODE} flow passed (${commands.length} commands)`);
 } finally {
   await browser.close();

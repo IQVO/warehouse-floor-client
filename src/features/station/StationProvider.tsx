@@ -29,6 +29,7 @@ export function StationProvider({ children }: { children: ReactNode }) {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [now, setNow] = useState(() => clock());
   const [renewFailing, setRenewFailing] = useState(false);
+  const [lastScan, setLastScan] = useState<StationApi["lastScan"]>(null);
   const stateRef = useRef(state);
   useEffect(() => {
     stateRef.current = state;
@@ -128,6 +129,7 @@ export function StationProvider({ children }: { children: ReactNode }) {
         case "pick-scan": {
           const r = outcome.data as PickScanResult | undefined;
           if (r === undefined) break;
+          setLastScan({ taskId: meta.taskId ?? "", result: r });
           const left = r.plannedEaches - r.pickedEaches;
           say({
             tone: "success",
@@ -215,6 +217,7 @@ export function StationProvider({ children }: { children: ReactNode }) {
       now,
       busy,
       notice,
+      lastScan,
       renewFailing: renewFailing && heldId !== null,
       dismissNotice: () => setNotice(null),
       register: (input) => run("register", () => api.registerStation(input), { stationId: input.stationId }),
@@ -255,7 +258,7 @@ export function StationProvider({ children }: { children: ReactNode }) {
       },
       retryNow: () => void runner.flush(),
     }),
-    [state, now, busy, notice, renewFailing, heldId, api, run, runner],
+    [state, now, busy, notice, renewFailing, lastScan, heldId, api, run, runner],
   );
 
   return <StationContext value={value}>{children}</StationContext>;

@@ -38,7 +38,7 @@ npm run e2e:station                                         # headless Chromium
 E2E_MODE=real npm run e2e:station                           # against Kong (needs the cluster); never completes real work
 ```
 
-`E2E_CHROMIUM=/path/to/chrome` reuses an installed Chromium instead of `npx playwright install`. The stub enforces `Idempotency-Key` on every POST and replays the stored answer for a repeated key (stricter than the real service, which does so on `POST /tasks` only), and can apply a command and then cut the connection (`POST /__stub/drop-next-response`) to prove the client reuses its key.
+`E2E_CHROMIUM=/path/to/chrome` reuses an installed Chromium instead of `npx playwright install`. The stub enforces `Idempotency-Key` on every POST and replays the stored answer for a repeated key (stricter than the real service, which does so on `POST /tasks` only), has a small PackView (SKU-1 each `3041090004827`, its 12-case `13041090004824`, SKU-2 each `4006381333931`) behind `POST /tasks/{id}/scans` and `/break-case`, takes hidden `pick: {sku, plannedEaches, unit}` on `POST /__stub/tasks`, leases a task to a station with `POST /__stub/claim` (BREAK_CASE is not claim-next-able), and can apply a command and then cut the connection (`POST /__stub/drop-next-response`) to prove the client reuses its key.
 
 ## CI
 

@@ -72,9 +72,10 @@ function TaskWork({
   pendingScans: number;
   onRetry: () => void;
 }) {
-  const { completeTask, scanPick, busy } = useStation();
+  const { completeTask, scanPick, busy, lastScan } = useStation();
   const isPick = task.type === "PICK";
-  const [progress, setProgress] = useState<PickScanResult | null>(null);
+  // Fed by every accepted scan, including one that was saved offline and answered after a reconnect or reload.
+  const progress: PickScanResult | null = lastScan !== null && lastScan.taskId === task.id ? lastScan.result : null;
   const plan = useMemo(() => buildConfirmPlan(task), [task]);
   const [scans, setScans] = useState<Partial<Record<ScanStep["id"], string>>>({});
   const [mismatch, setMismatch] = useState<string | null>(null);
@@ -128,8 +129,7 @@ function TaskWork({
       }
       setMismatch(null);
       // count is always 1 per physical scan; a case GTIN counts cases, the server multiplies (contract R7).
-      const result = await scanPick(gtin.gtin);
-      if (result.ok && result.data !== undefined) setProgress(result.data as PickScanResult);
+      await scanPick(gtin.gtin);
       return;
     }
     if (nextStep !== undefined) {

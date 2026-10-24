@@ -84,6 +84,7 @@ GitFlow: feature branch, one PR into `develop`, never push `develop` or `main`. 
 
 ```
 src/lib/        command runner, outbox, connectivity, scan, problem, log   (no React)
+src/lib/gs1/    pure GS1 scan parser (SSCC, GTIN, GS1-128 AIs 00/01/02/10/17/37), no network
 src/api/        fulfillment-execution client + operator-facing error text
 src/app/        services context, layout, router link
 src/components/ ScanInput, OfflineBanner, NoticeBar, LeaseCountdown

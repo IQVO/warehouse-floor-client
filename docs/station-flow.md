@@ -19,9 +19,23 @@ Pack, SLAM, Rebin, Dispatch and Arrival tasks are not offered (their completion 
 
 | Type | Scans | Quantity | Request body |
 |---|---|---|---|
-| PICK | the order label (`orderRef`, case-insensitive) | no | `{stationId}` |
+| PICK | item and case barcodes as they are picked (each is its own `POST /tasks/{id}/scans`, see below), then the order label (`orderRef`, case-insensitive) | no | `{stationId}` |
+| BREAK_CASE | none: the **Break case** button | no | `POST /tasks/{id}/break-case` `{stationId}` |
 | RELOCATE | source bin, destination bin; a side the plan fixes must match it, an open side (source of an Assign, destination of a Vacate) accepts any scan | counted, >= 1 | `{stationId, quantity, fromBin, toBin}` |
 | REPLENISH | reserve bin, pick face: must match the plan | counted, defaults to the planned quantity | `{stationId, quantity, fromBin, toBin}` |
+
+### PICK: scan-confirm
+
+One focus-locked field takes both kinds of scan. The order label (when it matches `orderRef`) unlocks Complete as before. Anything else is parsed by `src/lib/gs1/`:
+
+- an each EAN/UPC (`]E0`, bare digits), a case ITF-14 (`]I1`) or a GS1-128 with AI 01 (`]C1`, GS-separated lot/expiry allowed) becomes `POST /tasks/{id}/scans` `{stationId, gtin: <14 digits>, count: 1}`. The screen shows `Picked N of M eaches (SKU)` from the answer; the pick is complete when N = M, then scan the order label and Complete. The client does not know whether the task is planned in eaches or cases, nor the pack factor; it only counts what the service answers;
+- a bad check digit, an SSCC, a pallet/mixed-carton label (AI 02) or a weight-priced GTIN is refused on the device in plain words, with no request;
+- the service's refusals (`unknown-gtin`, `invalid-scanned-gtin`, `scan-sku-mismatch`, `scan-level-mismatch`, `pick-over-quantity`, `no-pick-plan`) show as what-happened / what-to-do, count nothing and leave the task in hand;
+- offline, or when the answer is lost, the scan stays in the outbox with its key ("N scans are saved on this device"), and is sent once, in order, before the completion. A plain order-label-only completion (no item scans) still works, e.g. for a task released without a pick plan.
+
+### BREAK_CASE
+
+Shown when the held task is `BREAK_CASE` (an each pick found only a sealed case). The screen says to open the case at the pick face and press **Break case**: one `POST /tasks/{id}/break-case` completes the task after inventory-storage breaks the container. It has no plain Complete (the service refuses it). The command's key is stable per task, so a second tap, a lost answer or a reload reuses it. `503 case-break-unavailable` is retried by the outbox ("Case break saved on this device"); `case-break-rejected` keeps the task and says what to check. `claim-next` does not list BREAK_CASE in the published `AnyTaskType`, so there is no pull button for it yet (see [API contract](api-contract.md#gaps-in-the-published-spec-worth-a-fix-in-fulfillment-execution)).
 
 A fixed side is sent with the planned spelling, so a lower-case manual entry cannot trip the service's equality check.
 

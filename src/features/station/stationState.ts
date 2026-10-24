@@ -2,6 +2,7 @@ import { createContext, use } from "react";
 import type { Message } from "../../api/problemMessages";
 import type {
   CompletionConfirmation,
+  PickScanResult,
   Station,
   Task,
   TaskType,
@@ -54,6 +55,8 @@ export interface StationApi {
   busy: string | null;
   notice: Notice | null;
   dismissNotice(): void;
+  /** The latest accepted pick scan, whether answered directly or after an outbox replay. Not persisted. */
+  lastScan: { taskId: string; result: PickScanResult } | null;
   /** Whether the renewal timer's last attempt failed (the lease may lapse). */
   renewFailing: boolean;
   register(input: { stationId: string; capabilities: string[]; locationCode?: string }): Promise<ActionResult>;
