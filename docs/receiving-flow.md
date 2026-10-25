@@ -47,7 +47,7 @@ A finding is not an error. A *refused* scan is `200` with `accepted:false` (noth
 
 When a scan answers `UnlabelledCarton`, every carton in the answer without an `sscc` has an internal `LPN-<ulid>`; the screen fetches `GET /receipts/{id}/cartons/{lpn}/label` and shows the label data (human-readable text, sku, units, received at) with a **Print label** button. It calls `window.print()`; the print CSS in `src/styles/floor.css` hides everything but the label. The service has no printer driver.
 
-**Gap:** the CODE128 barcode itself is not drawn (the label shows the human-readable text only; no barcode library or encoder is in the app yet). A printed label is therefore readable but not yet scannable until the barcode is added.
+**Barcode:** the label draws a scannable barcode as inline SVG: Code 128 (set B) for an internal `LPN-<ulid>` and GS1-128 (FNC1, AI (00) + 18 digits) for an SSCC, from a small in-app encoder (`src/lib/barcode`, no library), with quiet zones, mm-based bar widths and the human-readable text underneath. What it prints is read back through the same GS1 parser the scan flow uses (a scanner that strips the `]C1` identifier delivers the SSCC as 20 digits starting `00`, which the parser accepts). A physical scanner has not been tested against a printed label.
 
 ## Commands, keys and retries
 

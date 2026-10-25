@@ -83,6 +83,9 @@ export function parseScan(raw: string, options: ParseOptions = {}): ParsedScan {
 function parseUnprefixed(body: string, raw: string, options: ParseOptions): ParsedScan {
   if (/^\d+$/.test(body)) {
     if (body.length === 18) return ssccFromDigits(body, "NONE", raw);
+    // A GS1-128 SSCC whose scanner stripped the ]C1 identifier: AI 00 + 18
+    // digits. No GTIN has 20 digits, so this is unambiguous.
+    if (body.length === 20 && body.startsWith("00")) return parseElementString(body, raw, options);
     if ([8, 12, 13, 14].includes(body.length)) return gtinFromDigits(body, "NONE", raw);
     return invalid("bad-length", raw);
   }

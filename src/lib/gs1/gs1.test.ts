@@ -220,3 +220,18 @@ describe("toPickGtin", () => {
     expect(toPickGtin(parseScan("13041090004825"))).toEqual({ ok: false, reason: "bad-check-digit" });
   });
 });
+
+describe("a GS1-128 SSCC whose scanner stripped the ]C1 identifier", () => {
+  it("20 digits starting with AI 00 resolve to the SSCC", () => {
+    const parsed = parseScan("00340123450000000017");
+    expect(parsed.kind).toBe("SSCC");
+    expect(parsed.kind === "SSCC" && parsed.sscc).toBe("340123450000000017");
+  });
+  it("a wrong check digit in that form is still refused", () => {
+    expect(parseScan("00340123450000000018").kind).toBe("INVALID");
+  });
+  it("20 digits not starting with 00 stay a bad length", () => {
+    const parsed = parseScan("10340123450000000017");
+    expect(parsed.kind).toBe("INVALID");
+  });
+});
