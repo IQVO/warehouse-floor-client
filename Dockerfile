@@ -33,7 +33,7 @@ RUN rm -f package-lock.json
 RUN npm run build
 
 # --- runtime stage ---
-FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:26b0bf6fbf07297983cb341998d79c831508787de26627dd2a112321b9c3a4af
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
 # Same CVE pins as warehouse-console's runtime stage (they bust the cached
 # `apk upgrade` layer so the fixed packages are installed).
 USER root
