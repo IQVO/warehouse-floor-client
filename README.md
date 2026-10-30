@@ -11,6 +11,13 @@ This first cut is the foundation plus one slice, **fulfillment-execution station
 | Runtime | static files behind nginx (`Dockerfile`, `nginx.conf`) |
 | Docs | [`docs/`](docs/index.md) |
 
+## Disclaimer
+
+This project is a domain-driven design study. It is not associated with,
+endorsed by or affiliated with any company, and it uses no company's code,
+data, logos or trademarks. All names, figures and examples are illustrative
+or synthetic.
+
 ## Run it
 
 The ui-kit is a sibling checkout, exactly as for `warehouse-console`:
@@ -98,3 +105,17 @@ docs/           architecture, offline + idempotency, station flow, API contract,
 ## Not here yet
 
 Pack / SLAM / seal-package / rebin, stow / cycle-count / transfer-receipt, and the workforce-management shift clock are later PRs.
+
+## Documentation
+
+This PWA is documented in the warehouse-docs fleet pages (context page for the
+floor client) and its own guides in this repo: <https://iqvo.github.io/warehouse-docs/>.
+
+## Local development / quality gate
+
+See `Makefile` targets (`make check`) and the lefthook hooks (pre-commit
+fmt/lint, pre-push checks) — same harness as the fleet's Go services.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
