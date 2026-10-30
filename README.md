@@ -1,5 +1,7 @@
 # warehouse-floor-client
 
+[![CI](https://github.com/IQVO/warehouse-floor-client/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/IQVO/warehouse-floor-client/actions/workflows/ci.yml?query=branch%3Adevelop) [![docs](https://img.shields.io/badge/docs-iqvo.github.io-blue)](https://iqvo.github.io/warehouse-floor-client/) [![license](https://img.shields.io/badge/license-MIT-blue)](https://github.com/IQVO/warehouse-floor-client/blob/develop/LICENSE)
+
 Scan-first PWA for RF guns and station screens: the first-party client for the warehouse floor-execution APIs (claim, complete, pack, stow, shift clock).
 
 This first cut is the foundation plus one slice, **fulfillment-execution stations**: register, check in/out, claim the next task, scan to confirm, keep the lease alive, complete.
