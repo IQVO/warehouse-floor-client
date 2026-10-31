@@ -40,7 +40,7 @@ Every error is `application/problem+json` with `type` (`https://errors.fulfillme
 | `internal-error` | 500 | any | The server hit an unexpected error. / Try again in a moment. |
 | anything else, `about:blank` | any | any | gateway 404/405: "cannot be reached at this address" (setup problem); 5xx: "not answering properly"; unknown code: the service's own `title` plus "call your lead" |
 
-The exact text lives in `src/api/problemMessages.ts` and is covered by `src/api/problemMessages.test.ts`. `429/502/503/504` are not shown as errors: they are retried (see [offline and idempotency](offline-and-idempotency.md)).
+The exact text lives in `src/api/problemMessages.ts` and is covered by `src/api/problemMessages.test.ts`. `429/502/503/504` are not shown as errors: they are retried (see [offline and idempotency](/docs/overview/offline-and-idempotency)).
 
 ## Cluster routing (not wired by this repo)
 
@@ -48,7 +48,7 @@ In the kind cluster Kong listens on `http://localhost:8000` and the web gateway 
 
 # API contract (inbound-receiving)
 
-Source of truth: `apis/openapi.yaml` in IQVO/inbound-receiving (`origin/develop`). All paths are under `/api/inbound-receiving`. Flow, copy per finding and retry rules: [Receiving flow](receiving-flow.md).
+Source of truth: `apis/openapi.yaml` in IQVO/inbound-receiving (`origin/develop`). All paths are under `/api/inbound-receiving`. Flow, copy per finding and retry rules: [Receiving flow](/docs/overview/receiving-flow).
 
 | Action | Request | Success | Notes |
 |---|---|---|---|
@@ -60,4 +60,4 @@ Source of truth: `apis/openapi.yaml` in IQVO/inbound-receiving (`origin/develop`
 
 Errors are `application/problem+json`, `type` = `https://errors.inbound-receiving.warehouse-systems.dev/<slug>`; the client keys on `<slug>` and never shows `detail`. Copy for the slugs a dock operator can meet is in `src/api/receivingMessages.ts` (`receipt-not-found`, `invalid-receipt-id`, `receipt-closed`, `scan-kind-mismatch`, `invalid-sscc`, `invalid-gtin`, `unsupported-gtin`, `unsupported-pack-level`, `invalid-scan(-kind)`, `invalid-cases`, `invalid-quantity`, `invalid-counted-contents`, `counted-contents-not-mixed`, `counted-sku-unknown`, `carton-not-found`, `version-mismatch`, `concurrent-modification`, `dependency-unavailable`, `malformed-request`); idempotency, 5xx and gateway answers fall back to the shared table above. `429/502/503/504` are retried, not shown.
 
-Idempotency: inbound-receiving **does** de-duplicate `POST /scans` by `Idempotency-Key` (per its OpenAPI); see [Receiving flow](receiving-flow.md#commands-keys-and-retries). Spec observation: its example SSCC has an invalid check digit.
+Idempotency: inbound-receiving **does** de-duplicate `POST /scans` by `Idempotency-Key` (per its OpenAPI); see [Receiving flow](/docs/overview/receiving-flow#commands-keys-and-retries). Spec observation: its example SSCC has an invalid check digit.

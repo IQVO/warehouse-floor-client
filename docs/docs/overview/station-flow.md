@@ -31,11 +31,11 @@ A fixed side is sent with the planned spelling, so a lower-case manual entry can
 - At half-life (or less) the client calls `POST /tasks/{id}/renew-lease` (`204`, no body). It retries a failed renewal no more often than every 10 s. A successful renewal resets the local deadline to a full lease.
 - `409 task-not-claimed` / `task-not-owner` or `404 task-not-found` on renew or complete means the claim is gone: the task is dropped and the operator is told to pull again.
 - `409 task-already-completed` on complete is treated as done.
-- Complete while offline is saved and replayed (see [offline and idempotency](offline-and-idempotency.md)); the task screen shows "Completion saved on this device".
+- Complete while offline is saved and replayed (see [offline and idempotency](/docs/overview/offline-and-idempotency)); the task screen shows "Completion saved on this device".
 
 # Receiving dock (inbound-receiving)
 
-Routes: `/receiving` (open a receipt by id, or pick one of the open receipts) and `/receiving/:receiptId` (the receiving screen). Details: [Receiving flow](receiving-flow.md).
+Routes: `/receiving` (open a receipt by id, or pick one of the open receipts) and `/receiving/:receiptId` (the receiving screen). Details: [Receiving flow](/docs/overview/receiving-flow).
 
 **Design decision: receiving is not a station task.** The app shell was written around fulfillment-execution (register a station, check in, claim a task, hold a lease). Receiving needs none of it: inbound-receiving has no stations, no claim and no auth layer (fleet decision 2026-09-11), and a receipt is worked by whoever stands at the dock. So the smallest additive change was taken:
 

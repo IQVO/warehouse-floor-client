@@ -67,4 +67,4 @@ Tests: `src/pwa/sw.test.ts` (loads `public/sw.js` into a sandbox and asserts the
 
 ## inbound-receiving (receiving dock)
 
-Unlike fulfillment-execution's station/task endpoints, inbound-receiving's `POST /receipts/{id}/scans` requires the key and replays the stored answer for a repeated key (and `422 idempotency-key-reused` for a changed body), per its OpenAPI. Each physical scan is its own action (own key); a saved or lost-answer scan is replayed with its key, also after a reload. See [Receiving flow](receiving-flow.md).
+Unlike fulfillment-execution's station/task endpoints, inbound-receiving's `POST /receipts/{id}/scans` requires the key and replays the stored answer for a repeated key (and `422 idempotency-key-reused` for a changed body), per its OpenAPI. Each physical scan is its own action (own key); a saved or lost-answer scan is replayed with its key, also after a reload. See [Receiving flow](/docs/overview/receiving-flow).
