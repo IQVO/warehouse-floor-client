@@ -39,6 +39,33 @@ jobs:
       - run: npm run lint
         working-directory: warehouse-floor-client
 
+  # File-length budget: at most 300 lines of code per production TypeScript
+  # file (oxlint eslint/max-lines; comments and blank lines are not counted;
+  # config in .oxlintrc.file-length.json, separate from the main lint config).
+  # Pull requests into develop: BLOCKING for every .ts/.tsx file the PR adds or
+  # touches, so an oversized legacy file is split the next time it changes.
+  # Release PRs, push and schedule: informational report of the backlog.
+  file-length:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22"
+      - name: file length of the TypeScript files this PR adds or touches (blocking)
+        if: github.event_name == 'pull_request' && github.base_ref == 'develop'
+        run: |
+          set -euo pipefail
+          git diff --name-only --diff-filter=AMR -z origin/develop...HEAD -- '*.ts' '*.tsx' > "$RUNNER_TEMP/changed"
+          if [ ! -s "$RUNNER_TEMP/changed" ]; then echo "No TypeScript file changed."; exit 0; fi
+          xargs -0 npx --yes oxlint@1.90.0 -c .oxlintrc.file-length.json < "$RUNNER_TEMP/changed"
+      - name: file length backlog (informational)
+        if: github.event_name != 'pull_request' || github.base_ref != 'develop'
+        run: npx --yes oxlint@1.90.0 -c .oxlintrc.file-length.json . || true
+
   test:
     runs-on: ubuntu-latest
     steps:
