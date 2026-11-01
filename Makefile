@@ -12,8 +12,9 @@ test:
 	npm test
 build:
 	npm run build
+# Docusaurus site in docs/ (the CI `docs` job runs the same three steps).
 docs:
-	npm run docs:check
+	cd docs && npm ci && npm run typecheck && npm run build
 check: lint typecheck test build docs
 check-all: check
 # Fast local gate (the same one an agent Stop hook would run).
