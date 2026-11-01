@@ -11,7 +11,7 @@ This first cut is the foundation plus one slice, **fulfillment-execution station
 | Stack | React 19, Vite 8, TypeScript (strict), React Router 7, `@warehouse/ui-kit` |
 | Lint / test | oxlint, vitest + Testing Library (jsdom) |
 | Runtime | static files behind nginx (`Dockerfile`, `nginx.conf`) |
-| Docs | [`docs/`](docs/index.md) |
+| Docs | [iqvo.github.io/warehouse-floor-client](https://iqvo.github.io/warehouse-floor-client/) (sources in [`docs/`](docs/docs/overview/introduction.md)) |
 
 ## Disclaimer
 
@@ -61,7 +61,7 @@ Every `POST`/`PUT` sends `Idempotency-Key`. The key identifies **one user action
 - **reused** on every retry: automatic replay, reconnect, reload, the operator tapping the button again (same action, same body);
 - a different action, or the same action with a different body, gets a **new** key (the service answers `422 idempotency-key-reused` otherwise).
 
-All of it lives in `src/lib/commands.ts` + `src/lib/outbox.ts`. A screen never builds a `fetch` for a command; it calls the runner. Details and edge cases: [docs/offline-and-idempotency.md](docs/offline-and-idempotency.md).
+All of it lives in `src/lib/commands.ts` + `src/lib/outbox.ts`. A screen never builds a `fetch` for a command; it calls the runner. Details and edge cases: [docs/docs/overview/offline-and-idempotency.md](docs/docs/overview/offline-and-idempotency.md).
 
 ### 3. Offline: banner + persisted outbox, shell-only service worker
 
@@ -79,7 +79,7 @@ Barcodes enter through one component, `src/components/ScanInput.tsx`: a focus-lo
 
 ### 5. Errors are for operators
 
-A Problem+JSON response is turned into **what happened + what to do** in plain words (`src/api/problemMessages.ts`). Never render raw JSON, the HTTP status, or the service's `detail` string. Add the new error code to the table in [docs/api-contract.md](docs/api-contract.md) and to the test when the service gains one.
+A Problem+JSON response is turned into **what happened + what to do** in plain words (`src/api/problemMessages.ts`). Never render raw JSON, the HTTP status, or the service's `detail` string. Add the new error code to the table in [docs/docs/ecosystem/api-contract.md](docs/docs/ecosystem/api-contract.md) and to the test when the service gains one.
 
 ### 6. Logging
 
@@ -87,7 +87,7 @@ Never pass request-derived values (scanned codes, ids, paths, problem fields) to
 
 ### 7. Git and CI
 
-GitFlow: feature branch, one PR into `develop`, never push `develop` or `main`. CI job names `lint`, `test`, `typecheck`, `build`, `docs` (+ CodeQL) mirror `warehouse-console` and are what branch protection should require; do not rename them. The `docs` job is a zero-dependency Markdown gate (`scripts/docs-check.mjs`), not a Docusaurus site: see [docs/development.md](docs/development.md).
+GitFlow: feature branch, one PR into `develop`, never push `develop` or `main`. CI job names `lint`, `test`, `typecheck`, `build`, `docs` (+ CodeQL) mirror `warehouse-console` and are what branch protection should require; do not rename them. The `docs` job builds the Docusaurus site in `docs/` (`npm ci`, `npm run typecheck`, `npm run build`, the same pattern as the console): see [docs/docs/overview/quickstart.md](docs/docs/overview/quickstart.md).
 
 ## Layout
 
@@ -96,12 +96,12 @@ src/lib/        command runner, outbox, connectivity, scan, problem, log   (no R
 src/api/        fulfillment-execution client + operator-facing error text
 src/app/        services context, layout, router link
 src/components/ ScanInput, OfflineBanner, NoticeBar, LeaseCountdown
-src/features/   station/ (register, check-in/out, claim), task/ (confirm, renew, complete)
+src/features/   station/ (register, check-in/out, claim), task/ (confirm, renew, complete), receiving/ (dock scans)
 src/pwa/        service-worker registration
 public/         manifest, icons, sw.js (hand-written)
 build/          Vite plugin that stamps the precache list
-scripts/        stub API, browser flow, docs gate
-docs/           architecture, offline + idempotency, station flow, API contract, development
+scripts/        stub API, browser flows
+docs/           Docusaurus site: overview, operations, development, ecosystem
 ```
 
 ## Not here yet
@@ -110,8 +110,24 @@ Pack / SLAM / seal-package / rebin, stow / cycle-count / transfer-receipt, and t
 
 ## Documentation
 
-This PWA is documented in the warehouse-docs fleet pages (context page for the
-floor client) and its own guides in this repo: <https://iqvo.github.io/warehouse-docs/>.
+The documentation site is published at <https://iqvo.github.io/warehouse-floor-client/>
+(Docusaurus, sources in [`docs/`](docs/); `make docs` builds it). This repo has
+no ADRs: its decisions are the rules above.
+
+| Section | Page | What it answers |
+|---|---|---|
+| Overview | [Introduction](docs/docs/overview/introduction.md) | what the app does and does not own |
+| Overview | [Architecture](docs/docs/overview/architecture.md) | containers, layers, routes, data stores, build |
+| Overview | [Quickstart](docs/docs/overview/quickstart.md) | prerequisites, commands, running against the stub or Kong |
+| Overview | [Offline and idempotency](docs/docs/overview/offline-and-idempotency.md) | the key rule, the outbox, the service worker |
+| Overview | [Station flow](docs/docs/overview/station-flow.md) | register, check in, claim, pick scans, lease, complete |
+| Overview | [Receiving flow](docs/docs/overview/receiving-flow.md) | receipts, scans, findings, label print |
+| Operations | [Configuration](docs/docs/operations/configuration.md) | env vars (none at build time), `FLOOR_API_TARGET`, nginx, constants, storage keys |
+| Operations | [Runbook](docs/docs/operations/runbook.md) | image, edge requirements, releases, offline behaviour |
+| Operations | [Troubleshooting](docs/docs/operations/troubleshooting.md) | symptom, cause, check, fix |
+| Development | [Testing](docs/docs/development/testing.md) | test layers, make targets, CI jobs |
+| Ecosystem | [Integration](docs/docs/ecosystem/integration.md) | every upstream, failure behaviour, absent edges |
+| Ecosystem | [API contract](docs/docs/ecosystem/api-contract.md) | endpoints used, error codes and operator text |
 
 ## Local development / quality gate
 

@@ -6,7 +6,7 @@ import type * as OpenApiPlugin from 'docusaurus-plugin-openapi-docs';
 const config: Config = {
   title: 'Warehouse Floor Client',
   tagline:
-    'Warehouse Floor Client: the Experience web application of warehouse-systems.',
+    'Scan-first PWA for the warehouse floor: offline-safe commands on RF guns and station screens.',
   favicon: 'img/favicon.svg',
 
   future: {

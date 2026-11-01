@@ -35,7 +35,13 @@ function HomepageHeader() {
           {siteConfig.title}
         </Heading>
         <p className={styles.heroSubtitle}>{siteConfig.tagline}</p>
-        <p className={styles.heroLead}>TODO-LEAD</p>
+        <p className={styles.heroLead}>
+          The scan-first PWA that operators use on RF guns and station screens:
+          claim and complete tasks, count picks, and receive cartons at the
+          dock. Every command carries an Idempotency-Key and survives a dropped
+          connection in a persisted outbox, and the only network path is
+          same-origin /api through Kong.
+        </p>
         <div className={styles.buttons}>
           <Link className="button button--primary button--lg" to="/docs/overview/introduction">
             Read the docs
