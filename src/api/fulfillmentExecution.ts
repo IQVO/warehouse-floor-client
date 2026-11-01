@@ -2,7 +2,7 @@ import type { CommandRunner, Outcome } from "../lib/commands";
 
 /**
  * fulfillment-execution, as far as the station flow needs it. Shapes and error
- * codes are taken from the service's apis/openapi.yaml (see docs/api-contract.md).
+ * codes are taken from the service's apis/openapi.yaml (see docs/docs/ecosystem/api-contract.md).
  *
  * Network rule: the page's own origin, path /api/fulfillment-execution/..., which
  * Kong routes. Never a service URL, never a port, never another host.
@@ -13,7 +13,7 @@ export const FULFILLMENT_BASE = "/api/fulfillment-execution";
  * Every value of the OpenAPI `AnyTaskType`, plus BREAK_CASE (ADR 0054): the
  * service creates and completes it (POST /tasks/{id}/break-case) but
  * `AnyTaskType` does not list it yet, so claim-next is not offered for it
- * (see CLAIMABLE_TASK_TYPES and docs/api-contract.md).
+ * (see CLAIMABLE_TASK_TYPES and docs/docs/ecosystem/api-contract.md).
  */
 export const TASK_TYPES = ["PICK", "PACK", "SLAM", "REBIN", "DISPATCH", "ARRIVAL", "RELOCATE", "REPLENISH", "BREAK_CASE"] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
