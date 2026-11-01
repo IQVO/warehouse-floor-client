@@ -8,20 +8,17 @@ import {
   type Receipt,
   type ScanResult,
 } from "../../api/inboundReceiving";
-import { describeFinding, describeReceivingProblem, findingFacts } from "../../api/receivingMessages";
+import { describeReceivingProblem } from "../../api/receivingMessages";
 import { describeQueued, type Message } from "../../api/problemMessages";
 import { usePendingCommands, useServices } from "../../app/servicesContext";
 import { ScanInput } from "../../components/ScanInput";
 import type { Outcome } from "../../lib/commands";
 import { newIdempotencyKey } from "../../lib/idempotency";
 import { buildScanRequest, type AuditLine, type Mode } from "./scanToRequest";
-import { LabelCard } from "./LabelCard";
-
-const MODES: { id: Mode; label: string; hint: string }[] = [
-  { id: "carton", label: "Carton", hint: "Scan the carton label (SSCC)." },
-  { id: "case", label: "Cases", hint: "Scan the case barcode once per case, or enter how many cases and scan once." },
-  { id: "each", label: "Items", hint: "Scan each item, or enter how many and scan once." },
-];
+import { AuditPanel } from "./AuditPanel";
+import { Banner } from "./Banner";
+import { LastScan } from "./LastScan";
+import { MODES } from "./receivingModes";
 
 export function ReceivingScreen() {
   const { receiptId = "" } = useParams();
@@ -293,81 +290,5 @@ export function ReceivingScreen() {
         </Card>
       )}
     </div>
-  );
-}
-
-function Banner({ message }: { message: Message }) {
-  return (
-    <div className={`floor-notice floor-notice--${message.tone}`} role="alert">
-      <p className="floor-notice__what">{message.what}</p>
-      <p className="floor-notice__todo">{message.todo}</p>
-    </div>
-  );
-}
-
-function AuditPanel({ lines, onChange }: { lines: AuditLine[]; onChange: (l: AuditLine[]) => void }) {
-  return (
-    <details className="floor-details" open={lines.length > 0}>
-      <summary>Mixed carton: count what is inside</summary>
-      <p className="floor-muted">
-        Optional. Enter what you counted for each SKU, then scan the carton label. The counted quantities are what is received, not the label&apos;s.
-      </p>
-      {lines.map((l, i) => (
-        <div className="floor-scan__row" key={i}>
-          <input
-            className="floor-input"
-            aria-label={`Counted SKU ${i + 1}`}
-            placeholder="SKU"
-            value={l.sku}
-            onChange={(e) => onChange(lines.map((x, j) => (j === i ? { ...x, sku: e.target.value } : x)))}
-          />
-          <input
-            className="floor-input"
-            aria-label={`Counted quantity ${i + 1}`}
-            type="number"
-            inputMode="numeric"
-            min={0}
-            placeholder="Qty"
-            value={l.qty}
-            onChange={(e) => onChange(lines.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)))}
-          />
-          <button type="button" className="floor-btn floor-btn--quiet" onClick={() => onChange(lines.filter((_, j) => j !== i))}>
-            Remove
-          </button>
-        </div>
-      ))}
-      <button type="button" className="floor-btn" onClick={() => onChange([...lines, { sku: "", qty: "" }])}>
-        Add a SKU
-      </button>
-    </details>
-  );
-}
-
-function LastScan({ result, labels }: { result: ScanResult; labels: Record<string, CartonLabel> }) {
-  return (
-    <Card title="Last scan">
-      <p>
-        <strong>{result.accepted ? "Received" : "Not received"}</strong>
-      </p>
-      {result.cartons.map((c) => (
-        <p key={c.lpn} className="floor-pick__progress">
-          Carton <span className="floor-mono">{c.lpn}</span>: {c.contents.map((x) => `${x.qty} ${x.qty === 1 ? "each" : "eaches"} of ${x.sku}`).join(", ")}
-        </p>
-      ))}
-      {result.discrepancies.map((d, i) => {
-        const copy = describeFinding(d);
-        const facts = findingFacts(d);
-        return (
-          <div key={`${d.kind}-${i}`} className={`floor-notice floor-notice--${copy.tone}`} role="alert" data-finding={d.kind}>
-            <p className="floor-notice__what">{copy.title}</p>
-            {facts.length > 0 && <p className="floor-muted">{facts.join(" \u2022 ")}</p>}
-            <p className="floor-notice__todo">{copy.todo}</p>
-          </div>
-        );
-      })}
-      {Object.values(labels).map((l) => (
-        <LabelCard key={l.lpn} label={l} />
-      ))}
-    </Card>
   );
 }
