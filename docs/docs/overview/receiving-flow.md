@@ -1,3 +1,9 @@
+---
+id: receiving-flow
+title: Receiving flow
+sidebar_label: Receiving flow
+---
+
 # Receiving flow (inbound-receiving)
 
 Source of truth: `apis/openapi.yaml` in IQVO/inbound-receiving (read from `origin/develop`). All paths are under `/api/inbound-receiving` at this app's own origin (Kong). Contract: mastercase `contracts.md` sections 1, 7 (R7), 9 (R10, R11, R13).
