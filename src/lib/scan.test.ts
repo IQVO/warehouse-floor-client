@@ -7,6 +7,10 @@ describe("normalizeScan", () => {
     expect(normalizeScan("\tWH1-FWD-A01\t")).toBe("WH1-FWD-A01");
   });
 
+  it("keeps the GS (0x1D) separator of a GS1-128 string", () => {
+    expect(normalizeScan("]C110LOT\u001d17261231\r")).toBe("]C110LOT\u001d17261231");
+  });
+
   it("removes embedded control characters", () => {
     expect(normalizeScan("AB\u0000C\u001bD")).toBe("ABCD");
   });

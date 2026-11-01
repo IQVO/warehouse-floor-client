@@ -103,6 +103,58 @@ const BY_CODE: Record<string, Message> = {
     what: "The quantity or a scanned bin does not fit the replenishment.",
     todo: "Enter a quantity of 1 or more and rescan the bins shown on the task.",
   },
+  // ---- POST /tasks/{id}/scans (PICK scan-confirm) ----
+  "unknown-gtin": {
+    tone: "warning",
+    what: "The system does not know that barcode.",
+    todo: "Check you scanned the item or case for this pick, then scan it again. If it keeps happening, call your lead.",
+  },
+  "invalid-scanned-gtin": {
+    tone: "warning",
+    what: "That barcode is not a valid product code (a digit is wrong, or it is a weight-priced item).",
+    todo: "Scan it again. If it will not read, use Type instead. Nothing was counted.",
+  },
+  "scan-sku-mismatch": {
+    tone: "warning",
+    what: "That is not the item for this pick. It can be the item barcode printed on a case of something else.",
+    todo: "Put it back and scan the item or case this pick asks for. Nothing was counted.",
+  },
+  "scan-level-mismatch": {
+    tone: "warning",
+    what: "You scanned a case where single items are picked, or a single item where cases are picked.",
+    todo: "Scan the unit this pick asks for: the case barcode for a case pick, the item barcode for an item pick. Nothing was counted.",
+  },
+  "pick-over-quantity": {
+    tone: "warning",
+    what: "That scan would pick more than this task asks for. It was not counted.",
+    todo: "Put the extra back. If the pick is complete, scan the order label and complete the task.",
+  },
+  "no-pick-plan": {
+    tone: "warning",
+    what: "This task has no pick quantity to scan against.",
+    todo: "Scan the order label and complete the task, or ask your lead.",
+  },
+  // ---- POST /tasks/{id}/break-case (BREAK_CASE) ----
+  "case-break-rejected": {
+    tone: "danger",
+    what: "The storage system refused to break this case.",
+    todo: `Check the case is sealed and in its bin, then try again. ${CALL_LEAD}`,
+  },
+  "not-case-break-task": {
+    tone: "danger",
+    what: "This task is not a case-break task.",
+    todo: `${CLAIM_NEXT} ${CALL_LEAD}`,
+  },
+  "case-break-completion-required": {
+    tone: "warning",
+    what: "A case-break task is finished with the Break case button, not with Complete.",
+    todo: "Use Break case on this task's screen.",
+  },
+  "case-break-unavailable": {
+    tone: "warning",
+    what: "The storage system could not be reached to break the case. Nothing was changed.",
+    todo: "Try again in a moment. The task is still yours.",
+  },
   "internal-error": {
     tone: "danger",
     what: "The server hit an unexpected error.",

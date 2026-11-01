@@ -1,3 +1,9 @@
+---
+id: offline-and-idempotency
+title: Offline and idempotency
+sidebar_label: Offline and idempotency
+---
+
 # Offline and idempotency
 
 ## The key rule
@@ -33,11 +39,11 @@ Order of events for a command, in `CommandRunner.submit`:
 
 `wfc.outbox.v1` in localStorage: FIFO, validated on load (a corrupt entry, or one whose path is not a same-origin `/api/...` path, is dropped). Replays run: at page load, on the browser's `online` event, every 5 s while anything is pending, and on "Retry now". A replay stops at the first command that still cannot be delivered, so order is preserved. A new command submitted behind older pending ones first tries to drain them.
 
-What is queued: register, check-in, check-out, claim-next, complete. Not queued: lease renewal.
+What is queued (`kind`): `register`, `check-in`, `check-out`, `claim-next`, `pick-scan`, `complete`, `break-case`, `receive-scan`, `close-receipt`. Not queued: `renew-lease` (`persist: false`). Reads (`GET`) are plain fetches, never queued.
 
 ## Known caveat: the service enforces keys on `POST /tasks` only
 
-fulfillment-execution's `Idempotency-Key` middleware (ADR-0028) is attached to `POST /tasks`. The station and task endpoints this client uses ignore the header. So if a response is lost after the server applied the command, a replay is **not** de-duplicated by the server:
+fulfillment-execution's `Idempotency-Key` middleware (ADR-0028 in that repo) is attached to `POST /tasks`. The station and task endpoints this client uses ignore the header. So if a response is lost after the server applied the command, a replay is **not** de-duplicated by the server:
 
 - **complete**: the replay gets `409 task-already-completed`. The client treats that as success ("This task was already completed").
 - **claim-next**: a replay can lease a second task. The client keeps the task in hand and tells the operator to ignore the extra one; its lease returns it to the pool by itself (no loss, at-most-once holds).
@@ -47,7 +53,7 @@ Sending the key everywhere is still required: it is the contract, it costs nothi
 
 ## Offline banner
 
-`OfflineBanner` is always mounted. It shows while the browser reports offline **or** the last request never reached the edge (Wi-Fi with no route), and stays visible while saved commands are pending, with a "Retry now" button and a count.
+`OfflineBanner` is always mounted (in `Layout`) and renders nothing while the network is believed to work and nothing is pending. It shows while the browser reports offline **or** the last request never reached the edge (Wi-Fi with no route), and stays visible, as "Sending saved actions", while saved commands are pending, with a "Retry now" button and a count.
 
 ## Service worker
 
@@ -64,3 +70,7 @@ Sending the key everywhere is still required: it is the contract, it costs nothi
 Cache names are versioned by a content hash of the shell; old ones are deleted on activate. `nginx.conf` serves `sw.js`, `index.html` and the manifest with `no-cache`.
 
 Tests: `src/pwa/sw.test.ts` (loads `public/sw.js` into a sandbox and asserts the table above), `src/lib/lib.test.ts` (key reuse, persistence, replay order), and the offline cases in `src/features/**/*.test.tsx` and `scripts/e2e-station-flow.mjs`.
+
+## inbound-receiving (receiving dock)
+
+Unlike fulfillment-execution's station/task endpoints, inbound-receiving's `POST /receipts/{id}/scans` requires the key and replays the stored answer for a repeated key (and `422 idempotency-key-reused` for a changed body), per its OpenAPI. Each physical scan is its own action (own key); a saved or lost-answer scan is replayed with its key, also after a reload. See [Receiving flow](/docs/overview/receiving-flow).

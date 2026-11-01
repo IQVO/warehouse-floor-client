@@ -6,7 +6,7 @@
  * written to the outbox before the first byte is sent, and is reused verbatim
  * on every retry -- automatic replays, reconnects, a page reload, the operator
  * tapping the button again. A different action (or the same action with a
- * different body) gets a new key. See docs/offline-and-idempotency.md.
+ * different body) gets a new key. See docs/docs/overview/offline-and-idempotency.md.
  */
 export function newIdempotencyKey(): string {
   const c = globalThis.crypto;

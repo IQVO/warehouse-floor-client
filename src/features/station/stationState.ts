@@ -38,6 +38,8 @@ export interface Notice extends Message {
 export interface ActionResult {
   /** The service answered with success. */
   ok: boolean;
+  /** The parsed success body, when the action has one (a pick scan's running total). */
+  data?: unknown;
   /** Saved on this device; will be sent when the connection is back. */
   queued: boolean;
 }
@@ -59,6 +61,10 @@ export interface StationApi {
   checkOut(): Promise<ActionResult>;
   claimNext(taskType: TaskType): Promise<ActionResult>;
   completeTask(confirmation?: CompletionConfirmation): Promise<ActionResult>;
+  /** One scan of an each/case GTIN (14 digits) against the held PICK task. `data` is a PickScanResult when ok. */
+  scanPick(gtin: string): Promise<ActionResult>;
+  /** Break the sealed case of the held BREAK_CASE task; completes the task. */
+  breakCase(): Promise<ActionResult>;
   /** Replay the outbox right now (the "Retry now" button). */
   retryNow(): void;
 }

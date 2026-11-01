@@ -12,8 +12,9 @@ test:
 	npm test
 build:
 	npm run build
+# Docusaurus site in docs/ (the CI `docs` job runs the same three steps).
 docs:
-	npm run docs:check
+	cd docs && npm ci && npm run typecheck && npm run build
 check: lint typecheck test build docs
 check-all: check
 # Fast local gate (the same one an agent Stop hook would run).
@@ -29,6 +30,7 @@ stub-api:
 # Drive the station flow in headless Chromium against E2E_BASE (default http://localhost:5174).
 e2e:
 	npm run e2e:station
+	npm run e2e:receiving
 # Needs the sibling checkout: ../warehouse-ui-kit
 image:
 	docker build --build-context uikit=../warehouse-ui-kit -t warehouse-floor-client .

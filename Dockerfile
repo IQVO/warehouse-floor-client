@@ -12,14 +12,14 @@
 #   inside the throwaway build layer. The committed lockfile is never mutated.
 
 # --- ui-kit build stage (sibling dependency) ---
-FROM node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS uikit-build
+FROM node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS uikit-build
 WORKDIR /uikit
 COPY --from=uikit . .
 RUN --mount=type=cache,target=/root/.npm \
     rm -rf node_modules package-lock.json && npm install --no-save && npm run build
 
 # --- app build stage ---
-FROM node:26-bookworm-slim@sha256:662933cf47f013bc8e4beb31a6116448427a82057ba7c42c97e4c5ba766504c2 AS build
+FROM node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS build
 WORKDIR /workspace/warehouse-ui-kit
 COPY --from=uikit-build /uikit/package.json ./package.json
 COPY --from=uikit-build /uikit/dist ./dist
@@ -33,7 +33,7 @@ RUN rm -f package-lock.json
 RUN npm run build
 
 # --- runtime stage ---
-FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:26b0bf6fbf07297983cb341998d79c831508787de26627dd2a112321b9c3a4af
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
 # Same CVE pins as warehouse-console's runtime stage (they bust the cached
 # `apk upgrade` layer so the fixed packages are installed).
 USER root
