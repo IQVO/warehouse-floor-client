@@ -4,7 +4,7 @@ import { parseProblem, type Problem } from "../lib/problem";
 /**
  * inbound-receiving, as far as the receiving-dock flow needs it. Shapes and
  * error slugs are taken from the service's apis/openapi.yaml (see
- * docs/api-contract.md).
+ * docs/docs/ecosystem/api-contract.md).
  *
  * Network rule: the page's own origin, path /api/inbound-receiving/..., which
  * Kong routes. Never a service URL, never a port, never another host.
