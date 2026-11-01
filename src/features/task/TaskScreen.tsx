@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Card, StatusPill } from "@warehouse/ui-kit";
-import { LeaseCountdown } from "../../components/LeaseCountdown";
+import { Card } from "@warehouse/ui-kit";
 import { ScanInput } from "../../components/ScanInput";
 import { usePendingCommands } from "../../app/servicesContext";
 import type { PickScanResult, Task } from "../../api/fulfillmentExecution";
@@ -9,6 +8,8 @@ import { parseScan, toPickGtin } from "../../lib/gs1";
 import { describePickRefusal } from "./scanCopy";
 import { useStation } from "../station/stationState";
 import { buildConfirmPlan, scanMatches, type ScanStep } from "./confirmPlan";
+import { TaskHeader } from "./TaskHeader";
+import { BreakCaseWork } from "./BreakCaseWork";
 
 export function TaskScreen() {
   const { held, station, now, renewFailing, retryNow } = useStation();
@@ -233,124 +234,6 @@ function TaskWork({
             onClick={() => void complete()}
           >
             {sending ? "Completing..." : "Complete task"}
-          </button>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-function TaskHeader({
-  task,
-  remainingMs,
-  durationMs,
-  renewFailing,
-}: {
-  task: Task;
-  remainingMs: number;
-  durationMs: number;
-  renewFailing: boolean;
-}) {
-  return (
-    <Card
-      title={
-        <h2 className="floor-task__title">
-          {task.type} task <span className="floor-mono">{task.id}</span>
-        </h2>
-      }
-      actions={<StatusPill status={task.status} />}
-    >
-      <dl className="floor-facts">
-        {task.orderRef && (
-          <>
-            <dt>Order</dt>
-            <dd className="floor-mono">{task.orderRef}</dd>
-          </>
-        )}
-        {task.cpt && (
-          <>
-            <dt>Due (CPT)</dt>
-            <dd>{new Date(task.cpt).toLocaleString()}</dd>
-          </>
-        )}
-        {task.relocation && (
-          <>
-            <dt>Move</dt>
-            <dd>
-              {task.relocation.kind} <span className="floor-mono">{task.relocation.sku}</span>
-              {task.relocation.fromBin && <> from <span className="floor-mono">{task.relocation.fromBin}</span></>}
-              {task.relocation.toBin && <> to <span className="floor-mono">{task.relocation.toBin}</span></>}
-            </dd>
-          </>
-        )}
-        {task.replenishment && (
-          <>
-            <dt>Replenish</dt>
-            <dd>
-              {task.replenishment.quantity} x <span className="floor-mono">{task.replenishment.sku}</span> from{" "}
-              <span className="floor-mono">{task.replenishment.fromBin}</span> to{" "}
-              <span className="floor-mono">{task.replenishment.toBin}</span>
-              {task.replenishment.priority === "URGENT" && <strong> (URGENT)</strong>}
-            </dd>
-          </>
-        )}
-        {task.fragile && (
-          <>
-            <dt>Handling</dt>
-            <dd>Fragile</dd>
-          </>
-        )}
-        {task.giftWrap && (
-          <>
-            <dt>Handling</dt>
-            <dd>Gift wrap</dd>
-          </>
-        )}
-      </dl>
-      <LeaseCountdown remainingMs={remainingMs} durationMs={durationMs} renewFailing={renewFailing} />
-    </Card>
-  );
-}
-
-function BreakCaseWork({
-  task,
-  remainingMs,
-  durationMs,
-  renewFailing,
-  breakQueued,
-  onRetry,
-}: {
-  task: Task;
-  remainingMs: number;
-  durationMs: number;
-  renewFailing: boolean;
-  breakQueued: boolean;
-  onRetry: () => void;
-}) {
-  const { breakCase, busy } = useStation();
-  const sending = busy === "break-case";
-  return (
-    <div className="floor-stack">
-      <TaskHeader task={task} remainingMs={remainingMs} durationMs={durationMs} renewFailing={renewFailing} />
-      <Card title="Break the sealed case">
-        <p>Open the sealed case at the pick face and put the items loose in the bin. Then press Break case.</p>
-        <p>The warehouse system updates its stock (the case becomes loose items) and this task is completed in one step.</p>
-        {breakQueued ? (
-          <output className="floor-notice floor-notice--warning">
-            <p className="floor-notice__what">Case break saved on this device.</p>
-            <p className="floor-notice__todo">It will be sent when the connection is back. You do not need to repeat it.</p>
-            <button type="button" className="floor-btn" onClick={onRetry}>
-              Retry now
-            </button>
-          </output>
-        ) : (
-          <button
-            type="button"
-            className="floor-btn floor-btn--primary floor-btn--xl"
-            disabled={sending}
-            onClick={() => void breakCase()}
-          >
-            {sending ? "Breaking..." : "Break case"}
           </button>
         )}
       </Card>

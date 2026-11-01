@@ -39,6 +39,51 @@ jobs:
       - run: npm run lint
         working-directory: warehouse-floor-client
 
+  # File-length budget: at most 300 lines of code per production TypeScript
+  # file (oxlint eslint/max-lines; comments and blank lines are not counted;
+  # config in .oxlintrc.file-length.json, separate from the main lint config).
+  # Pull requests into develop: BLOCKING for every .ts/.tsx file the PR adds or
+  # touches, so an oversized legacy file is split the next time it changes.
+  # Release PRs, push and schedule: informational report of the backlog.
+  file-length:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22"
+      # A PR whose only .ts changes are ignored by .oxlintrc.file-length.json (docs/**, *.d.ts, tests) must
+      # pass: plain oxlint exits 1 on "No files found to lint". The self-test proves both directions every run.
+      - name: file-length gate self-test (ignored-only diff passes, oversized file fails)
+        if: github.event_name == 'pull_request' && github.base_ref == 'develop'
+        run: |
+          set -euo pipefail
+          lint() { xargs -0 npx --yes oxlint@1.90.0 -c .oxlintrc.file-length.json --no-error-on-unmatched-pattern; }
+          mkdir -p zz-fl-probe
+          echo 'export declare const probe: number;' > zz-fl-probe/ignored.d.ts
+          { echo 'export function f(): number {'; echo '  let x = 0;'
+            for i in $(seq 320); do echo "  x += $i;"; done
+            echo '  return x;'; echo '}'; } > zz-fl-probe/oversized.ts
+          printf 'zz-fl-probe/ignored.d.ts\0' | lint
+          if printf 'zz-fl-probe/oversized.ts\0' | lint > /dev/null; then
+            echo "::error::file-length self-test: a 320-line file passed the gate"; exit 1
+          fi
+          rm -rf zz-fl-probe
+          echo "self-test: ignored-only diff passes, oversized file fails"
+      - name: file length of the TypeScript files this PR adds or touches (blocking)
+        if: github.event_name == 'pull_request' && github.base_ref == 'develop'
+        run: |
+          set -euo pipefail
+          git diff --name-only --diff-filter=AMR -z origin/develop...HEAD -- '*.ts' '*.tsx' > "$RUNNER_TEMP/changed"
+          if [ ! -s "$RUNNER_TEMP/changed" ]; then echo "No TypeScript file changed."; exit 0; fi
+          xargs -0 npx --yes oxlint@1.90.0 -c .oxlintrc.file-length.json --no-error-on-unmatched-pattern < "$RUNNER_TEMP/changed"
+      - name: file length backlog (informational)
+        if: github.event_name != 'pull_request' || github.base_ref != 'develop'
+        run: npx --yes oxlint@1.90.0 -c .oxlintrc.file-length.json . || true
+
   test:
     runs-on: ubuntu-latest
     steps:
