@@ -98,3 +98,7 @@ The repo has no ADRs; its decisions are the numbered rules in the README
 | debug it | [Troubleshooting](/docs/operations/troubleshooting) |
 | run and extend the tests | [Testing](/docs/development/testing) |
 | see what it calls and how it fails | [Integration](/docs/ecosystem/integration), [API contract](/docs/ecosystem/api-contract) |
+
+:::note[Disclaimer]
+This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.
+:::
