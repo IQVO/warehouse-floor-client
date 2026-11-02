@@ -27,8 +27,9 @@ spec does not define. A new screen starts from the spec, not from a guess.
   makes two explicit calls and shows each result.
 - **Every command carries an `Idempotency-Key`.** Scanners and flaky Wi-Fi retry,
   so the key is generated ONCE per user action and reused on every retry of that
-  action, including after a reload (pending commands are persisted). Never mint a
-  fresh key inside a retry loop.
+  action, including after a reload (pending commands are persisted; their
+  outbox paths are migrated by `src/lib/outboxMigration.ts`, STANDARD 5.5).
+  Never mint a fresh key inside a retry loop.
 - **Offline is read-only for the shell, queued for commands.** The service worker
   precaches the app shell only; API responses are never served from cache. When
   offline the operator sees a clear banner, and commands wait in the persisted
