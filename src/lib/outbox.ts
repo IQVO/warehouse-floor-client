@@ -25,6 +25,12 @@ export interface OutboxEntry {
   meta: Record<string, string>;
   createdAt: number;
   attempts: number;
+  /**
+   * Set when the per-entry attempt cap was hit: the runner no longer replays
+   * it automatically. Terminal for auto-retry, not for the operator: a
+   * re-tap (or the stuck banner) starts a fresh round with the SAME key.
+   */
+  stuck?: boolean;
 }
 
 const STORAGE_KEY = "wfc.outbox.v1";
@@ -41,6 +47,7 @@ function isEntry(value: unknown): value is OutboxEntry {
     v.path.startsWith("/api/") &&
     typeof v.createdAt === "number" &&
     typeof v.attempts === "number" &&
+    (v.stuck === undefined || typeof v.stuck === "boolean") &&
     typeof v.meta === "object" &&
     v.meta !== null
   );
@@ -85,8 +92,13 @@ export class Outbox {
     this.commit(next);
   }
 
-  update(key: string, patch: Partial<Pick<OutboxEntry, "attempts">>): void {
+  update(key: string, patch: Partial<Pick<OutboxEntry, "attempts" | "stuck">>): void {
     this.commit(this.snapshot.map((e) => (e.key === key ? { ...e, ...patch } : e)));
+  }
+
+  /** Operator chose to try a stuck entry again: same key, fresh round of attempts. */
+  retry(key: string): void {
+    this.commit(this.snapshot.map((e) => (e.key === key ? { ...e, attempts: 0, stuck: undefined } : e)));
   }
 
   remove(key: string): void {

@@ -45,10 +45,20 @@ export interface RunnerOptions {
   requestTimeoutMs?: number;
   /** How often to retry while the outbox is non-empty. */
   retryIntervalMs?: number;
+  /**
+   * Per-entry cap on automatic attempts. When it is hit the entry becomes
+   * stuck: no more auto-retries, surfaced to the operator instead.
+   */
+  maxAttempts?: number;
 }
 
-/** Gateway-level "try again" statuses. Everything else is a definitive answer. */
-const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+/**
+ * Gateway-level "try again" statuses, plus 500: a 500 can be thrown after the
+ * command was applied and only the response was lost. Every resend carries the
+ * entry's Idempotency-Key, so treating 500 as retryable cannot double-apply.
+ * Everything else is a definitive answer.
+ */
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 
 type Attempt = { kind: "response"; outcome: Outcome } | { kind: "retry"; reason: RetryReason };
 
@@ -60,6 +70,7 @@ export class CommandRunner {
   private readonly now: () => number;
   private readonly requestTimeoutMs: number;
   private readonly retryIntervalMs: number;
+  private readonly maxAttempts: number;
   private readonly listeners = new Set<SettledListener>();
   private readonly inFlight = new Map<string, Promise<Attempt>>();
   private flushing: Promise<void> | null = null;
@@ -72,6 +83,7 @@ export class CommandRunner {
     this.now = options.now ?? Date.now;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 15_000;
     this.retryIntervalMs = options.retryIntervalMs ?? 5_000;
+    this.maxAttempts = options.maxAttempts ?? 8;
   }
 
   /** Called for every outbox entry that reaches a definitive answer during a replay (not for direct submits). */
@@ -92,10 +104,16 @@ export class CommandRunner {
     // a changed body is a different request and must get a new key (the
     // server rejects key reuse with a different body: 422 idempotency-key-reused).
     const existing = spec.dedupeId === undefined ? undefined : this.outbox.find(spec.dedupeId);
-    const entry =
+    let entry =
       existing !== undefined && sameBody(existing.body, spec.body)
         ? existing
         : this.makeEntry(spec, this.newKey());
+    if (entry.stuck === true) {
+      // The operator re-tapped an action that gave up: same key (it is still
+      // the same logical action), but a fresh round of attempts.
+      this.outbox.retry(entry.key);
+      entry = { ...entry, attempts: 0, stuck: undefined };
+    }
     // Persist BEFORE the first byte leaves: a reload mid-request must find it.
     this.outbox.put(entry);
 
@@ -130,7 +148,7 @@ export class CommandRunner {
     const kick = () => void this.flush();
     target.addEventListener("online", kick);
     const timer = setInterval(() => {
-      if (this.outbox.list().length > 0) kick();
+      if (this.outbox.list().some((e) => e.stuck !== true)) kick();
     }, this.retryIntervalMs);
     kick(); // resume whatever a previous page load left behind
     return () => {
@@ -142,6 +160,8 @@ export class CommandRunner {
   private async doFlush(): Promise<void> {
     for (const entry of [...this.outbox.list()]) {
       if (this.outbox.get(entry.key) === undefined) continue;
+      // Stuck entries are not replayed and must not block the queue behind them.
+      if (entry.stuck === true) continue;
       const attempt = await this.transmit(entry, true, true);
       if (attempt.kind === "retry") return;
     }
@@ -153,6 +173,8 @@ export class CommandRunner {
     for (const older of [...this.outbox.list()]) {
       if (older.key === key) return true;
       if (this.outbox.get(older.key) === undefined) continue;
+      // A stuck older entry waits for the operator, not for this command.
+      if (older.stuck === true) continue;
       const attempt = await this.transmit(older, true, true);
       if (attempt.kind === "retry") return false;
     }
@@ -201,7 +223,7 @@ export class CommandRunner {
     } catch (error) {
       this.connectivity.reportUnreachable();
       log.warn("request did not reach the edge", entry.kind, entry.path, error);
-      return { kind: "retry", reason: "unreachable" };
+      return this.retryFrom(entry, persisted, "unreachable");
     } finally {
       clearTimeout(timer);
     }
@@ -209,7 +231,7 @@ export class CommandRunner {
     this.connectivity.reportReachable();
     if (RETRYABLE_STATUS.has(response.status)) {
       log.warn("edge asked us to retry", entry.kind, entry.path, response.status);
-      return { kind: "retry", reason: "unavailable" };
+      return this.retryFrom(entry, persisted, "unavailable");
     }
 
     const outcome = await readOutcome(response);
@@ -217,6 +239,19 @@ export class CommandRunner {
     if (persisted) this.outbox.remove(entry.key);
     if (notify) for (const l of [...this.listeners]) l(entry, outcome);
     return { kind: "response", outcome };
+  }
+
+  /**
+   * A failed attempt. When it used up the per-entry cap the entry is marked
+   * stuck: terminal for automatic replay (same key kept, so a later manual
+   * retry can never double-apply) until the operator retries or discards it.
+   */
+  private retryFrom(entry: OutboxEntry, persisted: boolean, reason: RetryReason): Attempt {
+    if (persisted && entry.attempts + 1 >= this.maxAttempts) {
+      this.outbox.update(entry.key, { stuck: true });
+      log.warn("command stuck after max attempts", entry.kind, entry.path, this.maxAttempts);
+    }
+    return { kind: "retry", reason };
   }
 }
 
