@@ -13,7 +13,7 @@ Every command (`POST`/`PUT`) sends an `Idempotency-Key` header. A key names **on
 | Situation | Key |
 |---|---|
 | First submit of an action | new (UUID v4) |
-| Automatic replay after a network failure / 502 / 503 / 504 / 429 | **same** |
+| Automatic replay after a network failure / 500 / 502 / 503 / 504 / 429 | **same** |
 | Replay after reconnect | **same** |
 | Replay after a page reload | **same** (read back from the outbox) |
 | Operator taps the same button again while the action is still pending, body unchanged | **same** |
@@ -26,18 +26,22 @@ Order of events for a command, in `CommandRunner.submit`:
 1. build the outbox entry (`key`, `kind`, `method`, `path`, `body`, `dedupeId`, `meta`),
 2. **write it to storage**,
 3. send it (skipped when the browser reports no network),
-4. on any HTTP answer other than 429/502/503/504, remove it and report the answer; otherwise leave it for replay.
+4. on any HTTP answer other than 429/500/502/503/504, remove it and report the answer; otherwise leave it for replay (until the per-entry attempt cap marks it stuck).
 
 `crypto.randomUUID` only exists in secure contexts, so keys fall back to `getRandomValues` (an RF gun on plain `http://<lan-host>` is not a secure context).
 
 ## Definitive vs retryable
 
-- **Definitive** (entry removed, reported to the operator): every 2xx, every 4xx, and 500 with a problem body. Retrying a `409` or `422` cannot change the answer.
-- **Retryable** (entry kept, same key): network failure, timeout (15 s), `429`, `502`, `503`, `504`.
+- **Definitive** (entry removed, reported to the operator): every 2xx and every 4xx. Retrying a `409` or `422` cannot change the answer.
+- **Retryable** (entry kept, same key): network failure, timeout (15 s), `429`, `500`, `502`, `503`, `504`. A `500` can be thrown after the command was applied and only the response was lost; every resend carries the entry's key, so replaying it cannot double-apply.
+
+## Attempt cap and stuck entries
+
+Each entry stops being replayed automatically after `maxAttempts` failed attempts (default 8) and is marked `stuck`: it stays in the outbox (terminal for auto-retry, same key kept) and stops blocking the commands queued behind it. `StuckOutboxBanner` (in `Layout`, next to the offline banner) shows the count and lets the operator **Send again** (same key, fresh round of attempts) or **Discard**. Re-tapping the action on its screen does the same as Send again.
 
 ## The outbox
 
-`wfc.outbox.v1` in localStorage: FIFO, validated on load (a corrupt entry, or one whose path is not a same-origin `/api/...` path, is dropped). Replays run: at page load, on the browser's `online` event, every 5 s while anything is pending, and on "Retry now". A replay stops at the first command that still cannot be delivered, so order is preserved. A new command submitted behind older pending ones first tries to drain them.
+`wfc.outbox.v1` in localStorage: FIFO, validated on load (a corrupt entry, or one whose path is not a same-origin `/api/...` path, is dropped). Replays run: at page load, on the browser's `online` event, every 5 s while anything non-stuck is pending, and on "Retry now". A replay stops at the first command that still cannot be delivered, so order is preserved; stuck entries are skipped instead of stopping the pass. A new command submitted behind older pending ones first tries to drain them (stuck ones excepted).
 
 What is queued (`kind`): `register`, `check-in`, `check-out`, `claim-next`, `pick-scan`, `complete`, `break-case`, `receive-scan`, `close-receipt`. Not queued: `renew-lease` (`persist: false`; the route is `POST .../lease-renewals`). Reads (`GET`) are plain fetches, never queued.
 
@@ -73,7 +77,7 @@ A command queued by an older build holds the old path (for example `.../tasks/t-
 
 Cache names are versioned by a content hash of the shell; old ones are deleted on activate. `nginx.conf` serves `sw.js`, `index.html` and the manifest with `no-cache`.
 
-Tests: `src/pwa/sw.test.ts` (loads `public/sw.js` into a sandbox and asserts the table above), `src/lib/lib.test.ts` (key reuse, persistence, replay order), and the offline cases in `src/features/**/*.test.tsx` and `scripts/e2e-station-flow.mjs`.
+Tests: `src/pwa/sw.test.ts` (loads `public/sw.js` into a sandbox and asserts the table above), `src/lib/lib.test.ts` (key reuse, persistence, replay order), `src/lib/outboxRetry.test.ts` (retryable 500/abort, attempt cap, stuck entries), `src/components/StuckOutboxBanner.test.tsx`, and the offline cases in `src/features/**/*.test.tsx` and `scripts/e2e-station-flow.mjs`.
 
 ## inbound-receiving (receiving dock)
 

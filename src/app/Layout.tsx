@@ -2,6 +2,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { AppShell, NavigationProvider, type NavItem } from "@warehouse/ui-kit";
 import { NoticeBar } from "../components/NoticeBar";
 import { OfflineBanner } from "../components/OfflineBanner";
+import { StuckOutboxBanner } from "../components/StuckOutboxBanner";
 import { useStation } from "../features/station/stationState";
 import { RouterLink } from "./RouterLink";
 
@@ -23,6 +24,7 @@ export function Layout() {
       <AppShell nav={nav} brand="Warehouse Floor">
         <div className="floor-page">
           <OfflineBanner />
+          <StuckOutboxBanner />
           <NoticeBar />
           <Outlet />
         </div>
