@@ -47,7 +47,7 @@ if the port is taken, Vite exits instead of picking another one.
 | Variable | Default | Required | Meaning |
 |---|---|---|---|
 | `STUB_PORT` | `8787` | no | Port of the in-memory stand-in for fulfillment-execution and inbound-receiving |
-| `STUB_LEASE_MS` | `300000` | no | Lease the stub grants on `claim-next`. Use `20000` to see an automatic renewal within seconds |
+| `STUB_LEASE_MS` | `300000` | no | Lease the stub grants on `task-claims`. Use `20000` to see an automatic renewal within seconds |
 
 ### Browser flows (`scripts/e2e-station-flow.mjs`, `scripts/e2e-receiving-flow.mjs`)
 
@@ -73,10 +73,10 @@ behaves when the network or the service misbehaves.
 | retryable statuses | `429`, `502`, `503`, `504` | `RETRYABLE_STATUS` in `src/lib/commands.ts` | kept in the outbox with the same key; every other answer is final |
 | default lease | 5 min | `DEFAULT_LEASE_MS` in `src/features/station/stationState.ts` | used when a claim response gives no usable `leaseExpiry` |
 | accepted lease range | 10 s to 60 min | `MIN_LEASE_MS`, `MAX_LEASE_MS` | a computed lease outside this range falls back to the default |
-| renew threshold | half-life | `RENEW_AT_FRACTION` (`0.5`) | `renew-lease` is called when no more than half the lease is left |
+| renew threshold | half-life | `RENEW_AT_FRACTION` (`0.5`) | `lease-renewals` is called when no more than half the lease is left |
 | renew retry spacing | 10 s | `RENEW_RETRY_MS` | a failing renewal is retried no more often than this |
 | log line cap | 200 characters | `MAX_LEN` in `src/lib/log.ts` | longer values are truncated with `...` |
-| open receipts page | `limit=50`, first page | `listOpenReceipts` in `src/api/inboundReceiving.ts` | the receiving list does not follow `nextCursor` |
+| open receipts page | `limit=50` per page, up to `OPEN_RECEIPTS_MAX_PAGES` (20) | `listOpenReceipts` in `src/api/inboundReceiving.ts` | follows `nextCursor` until it is absent; a longer list is cut at 1000 receipts |
 
 ## Browser storage
 

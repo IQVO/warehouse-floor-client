@@ -39,17 +39,21 @@ Order of events for a command, in `CommandRunner.submit`:
 
 `wfc.outbox.v1` in localStorage: FIFO, validated on load (a corrupt entry, or one whose path is not a same-origin `/api/...` path, is dropped). Replays run: at page load, on the browser's `online` event, every 5 s while anything is pending, and on "Retry now". A replay stops at the first command that still cannot be delivered, so order is preserved. A new command submitted behind older pending ones first tries to drain them.
 
-What is queued (`kind`): `register`, `check-in`, `check-out`, `claim-next`, `pick-scan`, `complete`, `break-case`, `receive-scan`, `close-receipt`. Not queued: `renew-lease` (`persist: false`). Reads (`GET`) are plain fetches, never queued.
+What is queued (`kind`): `register`, `check-in`, `check-out`, `claim-next`, `pick-scan`, `complete`, `break-case`, `receive-scan`, `close-receipt`. Not queued: `renew-lease` (`persist: false`; the route is `POST .../lease-renewals`). Reads (`GET`) are plain fetches, never queued.
 
-## Known caveat: the service enforces keys on `POST /tasks` only
+## Replays after a lost answer
 
-fulfillment-execution's `Idempotency-Key` middleware (ADR-0028 in that repo) is attached to `POST /tasks`. The station and task endpoints this client uses ignore the header. So if a response is lost after the server applied the command, a replay is **not** de-duplicated by the server:
+Since the fleet REST guideline cutover (ADR 0001), fulfillment-execution and inbound-receiving key **every** `POST` and `PATCH`: the same key and body returns the stored answer with `Idempotency-Replayed: true`, a missing key is `400 idempotency-key-required`, a malformed one `400 idempotency-key-invalid`, and the same key with another request `409 idempotency-key-reused` (a client bug, not retried). So a command whose answer was lost is applied once when the outbox replays it with its original key. This is read from the specs; it has not been exercised against a live deployment from this repo.
 
-- **complete**: the replay gets `409 task-already-completed`. The client treats that as success ("This task was already completed").
-- **claim-next**: a replay can lease a second task. The client keeps the task in hand and tells the operator to ignore the extra one; its lease returns it to the pool by itself (no loss, at-most-once holds).
-- **check-in**: a replay can get `409 station-occupied`, shown as is.
+Defence in depth stays in the client, because the stub and older deployments may not dedupe:
 
-Sending the key everywhere is still required: it is the contract, it costs nothing, and the day the service enforces it these replays become exact.
+- **complete** (`POST .../completions`): a replay that was not deduplicated gets `409 task-already-completed`; the client treats that as success ("This task was already completed").
+- **claim-next** (`POST .../task-claims`): a replay that was not deduplicated can lease a second task. The client keeps the task in hand and tells the operator to ignore the extra one; its lease returns it to the pool by itself.
+- **check-in** (`POST .../check-ins`): a replay that was not deduplicated can get `409 station-occupied`, shown as is.
+
+## Queued commands survive the route renames
+
+A command queued by an older build holds the old path (for example `.../tasks/t-1/complete`), which now answers 404. `Outbox` rewrites such a path when it reads the store (`src/lib/outboxMigration.ts`): `claim-next` to `task-claims`, `check-in`/`check-out` to `check-ins`/`check-outs`, `complete` to `completions`, `break-case` to `case-breaks`, `renew-lease` to `lease-renewals`, `seal-package` to `package-seals`, `/packages/{id}/slam` to `slam-runs`, the receipt `close` to `closures`, and the appointment and ASN `check-in`/`cancel` to `check-ins`/`cancellations`. The entry keeps its `Idempotency-Key`, `dedupeId`, body and queue position, the rewritten store is saved back, and a path that is already new or not recognised is left alone (a queued write is never dropped by the migration).
 
 ## Offline banner
 
@@ -73,4 +77,4 @@ Tests: `src/pwa/sw.test.ts` (loads `public/sw.js` into a sandbox and asserts the
 
 ## inbound-receiving (receiving dock)
 
-Unlike fulfillment-execution's station/task endpoints, inbound-receiving's `POST /receipts/{id}/scans` requires the key and replays the stored answer for a repeated key (and `422 idempotency-key-reused` for a changed body), per its OpenAPI. Each physical scan is its own action (own key); a saved or lost-answer scan is replayed with its key, also after a reload. See [Receiving flow](/docs/overview/receiving-flow).
+inbound-receiving's `POST /receipts/{id}/scans` requires the key and replays the stored answer for a repeated key (and `409 idempotency-key-reused` for a changed body), per its OpenAPI. Each physical scan is its own action (own key); a saved or lost-answer scan is replayed with its key, also after a reload. See [Receiving flow](/docs/overview/receiving-flow).

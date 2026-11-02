@@ -28,6 +28,11 @@ const sidebars: SidebarsConfig = {
       label: 'Ecosystem',
       items: ['ecosystem/integration', 'ecosystem/api-contract'],
     },
+    {
+      type: 'category',
+      label: 'Decisions',
+      items: ['adr/0001-adopt-fleet-rest-api-guideline'],
+    },
   ],
 };
 

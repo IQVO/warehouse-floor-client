@@ -73,24 +73,25 @@ IQVO/fulfillment-execution (`origin/develop`).
 | Operation | Request | When |
 |---|---|---|
 | Register | `POST /stations` | station screen; upsert, also used to re-register |
-| Check in / out | `POST /stations/{id}/check-in`, `.../check-out` | badge scan; check-out button |
-| Claim | `POST /stations/{id}/claim-next` `{taskType}` | Pick, Relocate, Replenish buttons (`CLAIMABLE_TASK_TYPES`) |
-| Renew lease | `POST /tasks/{id}/renew-lease` | automatic at half-life; never queued |
+| Check in / out | `POST /stations/{id}/check-ins`, `.../check-outs` | badge scan; check-out button |
+| Claim | `POST /stations/{id}/task-claims` `{taskType}` | Pick, Relocate, Replenish buttons (`CLAIMABLE_TASK_TYPES`) |
+| Renew lease | `POST /tasks/{id}/lease-renewals` | automatic at half-life; never queued |
 | Pick scan | `POST /tasks/{id}/scans` `{stationId, gtin, count}` | each item or case scan on a PICK task |
-| Break case | `POST /tasks/{id}/break-case` `{stationId}` | the `BREAK_CASE` task screen |
-| Complete | `POST /tasks/{id}/complete` | after the confirmation scans |
+| Break case | `POST /tasks/{id}/case-breaks` `{stationId}` | the `BREAK_CASE` task screen |
+| Complete | `POST /tasks/{id}/completions` | after the confirmation scans |
 
 Behaviour to rely on:
 
-- The service grants a **lease** on `claim-next` (5 minutes by default). The
+- The service grants a **lease** on `task-claims` (5 minutes by default). The
   client learns the length from `leaseExpiry` minus the response `Date`, keeps
   the deadline in the local clock and renews at half-life.
-- fulfillment-execution applies its `Idempotency-Key` middleware to
-  `POST /tasks` only. The station and task endpoints used here ignore the key,
-  so a replay after a lost answer is **not** deduplicated by the service.
-  `complete` replays resolve through `409 task-already-completed` (treated as
-  done); `claim-next` replays can lease a second task, which the client leaves
-  to expire; `check-in` replays can see `409 station-occupied`.
+- fulfillment-execution keys every `POST` and `PATCH` (fleet REST guideline):
+  a replay after a lost answer returns the stored answer with
+  `Idempotency-Replayed: true`. The client still tolerates a service that does
+  not deduplicate: `completions` replays resolve through
+  `409 task-already-completed` (treated as done); `task-claims` replays can
+  lease a second task, which the client leaves to expire; `check-ins` replays
+  can see `409 station-occupied`.
 - `BREAK_CASE` is created and completed by the service, but the OpenAPI
   `AnyTaskType` does not list it, so the client does not offer to claim it
   (`CLAIMABLE_TASK_TYPES`); the task screen handles it when one is held.
@@ -102,7 +103,7 @@ Behaviour to rely on:
 
 | Answer | Client behaviour |
 |---|---|
-| network error, timeout (15 s), `429`, `502`, `503`, `504` | commands: saved in the outbox, same key, replayed FIFO (on `online`, at load, every 5 s, "Retry now"). `renew-lease`: not queued, retried every 10 s |
+| network error, timeout (15 s), `429`, `502`, `503`, `504` | commands: saved in the outbox, same key, replayed FIFO (on `online`, at load, every 5 s, "Retry now"). `lease-renewals`: not queued, retried every 10 s |
 | `409 no-claimable-task` | calm "nothing waiting" message |
 | `404 station-not-found` | tells the operator to register the station again |
 | `409/404 task-not-claimed`, `task-not-owner`, `task-not-found` on renew, scan, complete or break | the held task is dropped; operator pulls the next one |
@@ -119,14 +120,14 @@ IQVO/inbound-receiving (`origin/develop`). Flow: [Receiving flow](/docs/overview
 | List open receipts | `GET /receipts?state=Open&limit=50` | read (first page only) |
 | Get a receipt | `GET /receipts/{receiptId}` | read |
 | Receive a scan | `POST /receipts/{receiptId}/scans` | command, key required |
-| Close | `POST /receipts/{receiptId}/close` | command |
+| Close | `POST /receipts/{receiptId}/closures` | command |
 | Carton label data | `GET /receipts/{receiptId}/cartons/{lpn}/label` | read |
 
 Behaviour to rely on:
 
-- Unlike fulfillment-execution, inbound-receiving **does** deduplicate
+- Both services deduplicate `POST` by `Idempotency-Key`; for
   `POST /scans` by `Idempotency-Key` (per its OpenAPI): the same key and body
-  returns the original answer, another body is `422 idempotency-key-reused`, a
+  returns the original answer, another body is `409 idempotency-key-reused`, a
   missing key is `400 idempotency-key-required`. This is read from the spec and
   has not been exercised against a live service from this repo; the stub
   implements the same rule.
