@@ -8,13 +8,13 @@
 //
 // It is STRICTER than the real service on purpose: it enforces Idempotency-Key
 // on every POST (the real one enforces it on POST /tasks only), replaying the
-// stored answer for a repeated key and answering 422 idempotency-key-reused for
+// stored answer for a repeated key and answering 409 idempotency-key-reused (Idempotency-Replayed: true on a replay) for
 // a key sent with a different body. A client that passes against this stub
 // therefore sends a key on every command and reuses it on retries.
 //
 // It also stands in for inbound-receiving's receiving-dock endpoints under
 // /api/inbound-receiving (seed receipt rcpt-stub-1): GET /receipts, GET
-// /receipts/{id}, POST /receipts/{id}/scans and /close, GET
+// /receipts/{id}, POST /receipts/{id}/scans and /closures, GET
 // /receipts/{id}/cartons/{lpn}/label. Seeded scans: SSCC 340123450000000017
 // (SKU-1, 20 eaches), 340123450000000024 (a MIXED carton: SKU-1 x4, SKU-2 x3),
 // 340123450000000031 (over the weight limit -> CartonOverLimit, still accepted);
@@ -105,7 +105,7 @@ const book = (r, sku, qty) => {
 
 function handleReceiving(path, method, body, res) {
   if (method === "GET" && path === `${IR}/receipts`) return send(res, 200, { items: [receiptView(receipt)] });
-  let m = path.match(new RegExp(`^${IR}/receipts/([^/]+)(?:/(scans|close|cartons/([^/]+)/label))?$`));
+  let m = path.match(new RegExp(`^${IR}/receipts/([^/]+)(?:/(scans|closures|cartons/([^/]+)/label))?$`));
   if (!m) return irProblem(res, 404, "resource-not-found", "No such route", path);
   const [, rawId, sub, rawLpn] = m;
   if (decodeURIComponent(rawId) !== receipt.receiptId) return irProblem(res, 404, "receipt-not-found", "Receipt not found", path);
@@ -121,7 +121,7 @@ function handleReceiving(path, method, body, res) {
   }
   if (method !== "POST") return irProblem(res, 404, "resource-not-found", "No such route", path);
   if (receipt.state === "Closed") return irProblem(res, 409, "receipt-closed", "Receipt is closed", path);
-  if (sub === "close") {
+  if (sub === "closures") {
     receipt.state = "Closed";
     receipt.closedAt = new Date().toISOString();
     receipt.discrepancies = receipt.lines.flatMap((l) => {
@@ -191,18 +191,18 @@ function handle(path, method, body, res) {
     stations.set(s.id, s);
     return send(res, 201, stationView(s), { Location: `/stations/${s.id}` });
   }
-  let m = path.match(new RegExp(`^${BASE}/stations/([^/]+)/(check-in|check-out|claim-next)$`));
+  let m = path.match(new RegExp(`^${BASE}/stations/([^/]+)/(check-ins|check-outs|task-claims)$`));
   if (method === "POST" && m) {
     const [, rawId, op] = m;
     const s = stations.get(decodeURIComponent(rawId));
     if (!s) return problem(res, 404, "station-not-found", "Station not found", "usecases: station not found", instance);
-    if (op === "check-in") {
+    if (op === "check-ins") {
       if (!body?.occupantId) return problem(res, 400, "invalid-request", "The request is malformed or missing a required field", "occupantId is required", instance);
       if (s.occupant !== null) return problem(res, 409, "station-occupied", "Station is already occupied", "station: already occupied", instance);
       s.occupant = body.occupantId;
       return send(res, 200, stationView(s));
     }
-    if (op === "check-out") {
+    if (op === "check-outs") {
       if (s.occupant === null) return problem(res, 409, "station-not-occupied", "Station is not occupied", "station: not occupied", instance);
       s.occupant = null;
       return send(res, 200, stationView(s));
@@ -220,7 +220,7 @@ function handle(path, method, body, res) {
     t.leaseExpiry = new Date(Date.now() + LEASE_MS).toISOString();
     return send(res, 200, view(t));
   }
-  m = path.match(new RegExp(`^${BASE}/tasks/([^/]+)/(renew-lease|complete)$`));
+  m = path.match(new RegExp(`^${BASE}/tasks/([^/]+)/(lease-renewals|completions)$`));
   if (method === "POST" && m) {
     const [, rawId, op] = m;
     const t = tasks.get(decodeURIComponent(rawId));
@@ -229,7 +229,7 @@ function handle(path, method, body, res) {
     if (t.status === "COMPLETED") return problem(res, 409, "task-already-completed", "Task already completed", "task: already completed", instance);
     if (!leaseActive(t)) return problem(res, 409, "task-not-claimed", "Task is not currently claimed", "task: not claimed", instance);
     if (t.leaseStationId !== body.stationId) return problem(res, 409, "task-not-owner", "Station does not own the active claim on this task", "task: not owner", instance);
-    if (op === "renew-lease") {
+    if (op === "lease-renewals") {
       t.leaseExpiry = new Date(Date.now() + LEASE_MS).toISOString();
       return send(res, 204);
     }
@@ -290,13 +290,14 @@ createServer((req, res) => {
       const entry = { method: req.method, path, key: key ?? null, body: body ?? null, replayed: false };
       log.push(entry);
       if (!key) return problem(res, 400, "idempotency-key-required", "Idempotency-Key header is required", "Send a caller-supplied Idempotency-Key header.", path);
+      if (!/^[\x20-\x7e]{1,128}$/.test(key)) return problem(res, 400, "idempotency-key-invalid", "Idempotency-Key is not valid", "Send 1-128 printable ASCII characters.", path);
       const stored = idem.get(key);
       if (stored) {
         if (stored.fingerprint !== `${path}\n${JSON.stringify(body ?? null)}`) {
-          return problem(res, 422, "idempotency-key-reused", "Idempotency-Key was already used with a different request", "Use a new Idempotency-Key for a genuinely different request.", path);
+          return problem(res, 409, "idempotency-key-reused", "Idempotency-Key was already used with a different request", "Use a new Idempotency-Key for a genuinely different request.", path);
         }
         entry.replayed = true;
-        res.writeHead(stored.status, stored.headers);
+        res.writeHead(stored.status, { ...stored.headers, "Idempotency-Replayed": "true" });
         return res.end(stored.payload);
       }
       // Capture what handle() writes so the same bytes can be replayed for this key.

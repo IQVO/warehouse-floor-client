@@ -17,6 +17,7 @@ describe("describeProblem", () => {
     "task-already-completed",
     "invalid-request",
     "idempotency-key-required",
+    "idempotency-key-invalid",
     "idempotency-key-reused",
     "station-location-not-workcenter",
     "relocation-confirmation-required",

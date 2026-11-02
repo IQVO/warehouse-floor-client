@@ -21,7 +21,7 @@ export type ConfirmPlan =
 
 /**
  * What the operator must confirm for each task type, mirroring the OpenAPI
- * rules for POST /tasks/{id}/complete:
+ * rules for POST /tasks/{id}/completions:
  *  - PICK: nothing but the claim; here the operator scans the order label so a
  *    wrong tote is caught before the task is closed.
  *  - RELOCATE: counted quantity + the bins the plan left open (fromBin for an

@@ -1,3 +1,4 @@
+import { migrateLegacyEntry } from "./outboxMigration";
 import type { KeyValueStore } from "./storage";
 
 /**
@@ -11,7 +12,7 @@ export interface OutboxEntry {
   /** What the command is, e.g. "complete"; the app maps it back to a handler on replay. */
   kind: string;
   method: "POST" | "PUT";
-  /** Same-origin path through Kong, e.g. /api/fulfillment-execution/tasks/1/complete. */
+  /** Same-origin path through Kong, e.g. /api/fulfillment-execution/tasks/1/completions. */
   path: string;
   body?: unknown;
   /**
@@ -113,10 +114,24 @@ export class Outbox {
       const raw = this.store.getItem(this.storageKey);
       if (raw === null) return [];
       const parsed: unknown = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter(isEntry) : [];
+      if (!Array.isArray(parsed)) return [];
+      const valid = parsed.filter(isEntry);
+      // Entries queued by an older build hold pre-guideline paths: rewrite them
+      // (keys, bodies and order untouched) and persist, so this runs once.
+      const entries = valid.map(migrateLegacyEntry);
+      if (entries.some((e, i) => e !== valid[i])) this.persistMigrated(entries);
+      return entries;
     } catch {
       // Corrupt JSON: dropping it is the only option, and a stuck outbox is worse.
       return [];
+    }
+  }
+
+  private persistMigrated(entries: OutboxEntry[]): void {
+    try {
+      this.store.setItem(this.storageKey, JSON.stringify(entries));
+    } catch {
+      // Not persisted (quota): the in-memory view is still migrated and the next read migrates again.
     }
   }
 
