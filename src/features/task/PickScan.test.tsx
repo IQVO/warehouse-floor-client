@@ -7,8 +7,8 @@ import { jsonResponse, noContent, problemResponse } from "../../test/fetchStub";
 
 const B = "/api/fulfillment-execution";
 const SCANS = (id: string) => `POST ${B}/tasks/${id}/scans`;
-const COMPLETE = (id: string) => `POST ${B}/tasks/${id}/complete`;
-const BREAK = (id: string) => `POST ${B}/tasks/${id}/break-case`;
+const COMPLETE = (id: string) => `POST ${B}/tasks/${id}/completions`;
+const BREAK = (id: string) => `POST ${B}/tasks/${id}/case-breaks`;
 const GS = "\u001d";
 const CASE_GTIN = "13041090004824";
 const EACH_GTIN = "03041090004827";
@@ -179,7 +179,7 @@ describe("PICK scan-confirm", () => {
 });
 
 describe("BREAK_CASE task screen", () => {
-  it("shows the break screen (no scan field) and posts {stationId} to /break-case with a key, then ends the task", async () => {
+  it("shows the break screen (no scan field) and posts {stationId} to /case-breaks with a key, then ends the task", async () => {
     const h = createHarness();
     held(h, BREAK_TASK);
     h.fetchStub.on(BREAK(BREAK_TASK.id), noContent());

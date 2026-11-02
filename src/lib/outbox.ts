@@ -1,3 +1,4 @@
+import { migrateLegacyEntry } from "./outboxMigration";
 import type { KeyValueStore } from "./storage";
 
 /**
@@ -11,7 +12,7 @@ export interface OutboxEntry {
   /** What the command is, e.g. "complete"; the app maps it back to a handler on replay. */
   kind: string;
   method: "POST" | "PUT";
-  /** Same-origin path through Kong, e.g. /api/fulfillment-execution/tasks/1/complete. */
+  /** Same-origin path through Kong, e.g. /api/fulfillment-execution/tasks/1/completions. */
   path: string;
   body?: unknown;
   /**
@@ -24,6 +25,12 @@ export interface OutboxEntry {
   meta: Record<string, string>;
   createdAt: number;
   attempts: number;
+  /**
+   * Set when the per-entry attempt cap was hit: the runner no longer replays
+   * it automatically. Terminal for auto-retry, not for the operator: a
+   * re-tap (or the stuck banner) starts a fresh round with the SAME key.
+   */
+  stuck?: boolean;
 }
 
 const STORAGE_KEY = "wfc.outbox.v1";
@@ -40,6 +47,7 @@ function isEntry(value: unknown): value is OutboxEntry {
     v.path.startsWith("/api/") &&
     typeof v.createdAt === "number" &&
     typeof v.attempts === "number" &&
+    (v.stuck === undefined || typeof v.stuck === "boolean") &&
     typeof v.meta === "object" &&
     v.meta !== null
   );
@@ -84,8 +92,13 @@ export class Outbox {
     this.commit(next);
   }
 
-  update(key: string, patch: Partial<Pick<OutboxEntry, "attempts">>): void {
+  update(key: string, patch: Partial<Pick<OutboxEntry, "attempts" | "stuck">>): void {
     this.commit(this.snapshot.map((e) => (e.key === key ? { ...e, ...patch } : e)));
+  }
+
+  /** Operator chose to try a stuck entry again: same key, fresh round of attempts. */
+  retry(key: string): void {
+    this.commit(this.snapshot.map((e) => (e.key === key ? { ...e, attempts: 0, stuck: undefined } : e)));
   }
 
   remove(key: string): void {
@@ -113,10 +126,24 @@ export class Outbox {
       const raw = this.store.getItem(this.storageKey);
       if (raw === null) return [];
       const parsed: unknown = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter(isEntry) : [];
+      if (!Array.isArray(parsed)) return [];
+      const valid = parsed.filter(isEntry);
+      // Entries queued by an older build hold pre-guideline paths: rewrite them
+      // (keys, bodies and order untouched) and persist, so this runs once.
+      const entries = valid.map(migrateLegacyEntry);
+      if (entries.some((e, i) => e !== valid[i])) this.persistMigrated(entries);
+      return entries;
     } catch {
       // Corrupt JSON: dropping it is the only option, and a stuck outbox is worse.
       return [];
+    }
+  }
+
+  private persistMigrated(entries: OutboxEntry[]): void {
+    try {
+      this.store.setItem(this.storageKey, JSON.stringify(entries));
+    } catch {
+      // Not persisted (quota): the in-memory view is still migrated and the next read migrates again.
     }
   }
 

@@ -11,8 +11,8 @@ describe("station screen", () => {
     const h = createHarness();
     h.fetchStub
       .on(`POST ${B}/stations`, jsonResponse(201, { id: "station-1", capabilities: ["pick"], occupied: false }))
-      .on(`POST ${B}/stations/station-1/check-in`, jsonResponse(200, { id: "station-1", capabilities: ["pick"], occupied: true }))
-      .on(`POST ${B}/stations/station-1/claim-next`, jsonResponse(200, PICK_TASK, { Date: "Thu, 01 Jan 2026 12:00:00 GMT" }));
+      .on(`POST ${B}/stations/station-1/check-ins`, jsonResponse(200, { id: "station-1", capabilities: ["pick"], occupied: true }))
+      .on(`POST ${B}/stations/station-1/task-claims`, jsonResponse(200, PICK_TASK, { Date: "Thu, 01 Jan 2026 12:00:00 GMT" }));
     const user = userEvent.setup();
     renderApp(h);
 
@@ -23,14 +23,14 @@ describe("station screen", () => {
 
     await user.type(await screen.findByLabelText("Scan your badge"), "worker-42{Enter}");
     expect(await screen.findByText("Checked in as worker-42.")).toBeInTheDocument();
-    expect(h.fetchStub.callsTo(`POST ${B}/stations/station-1/check-in`)[0]?.body).toEqual({ occupantId: "worker-42" });
+    expect(h.fetchStub.callsTo(`POST ${B}/stations/station-1/check-ins`)[0]?.body).toEqual({ occupantId: "worker-42" });
 
     await user.click(await screen.findByRole("button", { name: "Pick" }));
     // The claim moved us to the task screen, which shows the claimed task and its lease.
     expect(await screen.findByRole("heading", { name: /PICK task/ })).toBeInTheDocument();
     expect(screen.getByText("order-42")).toBeInTheDocument();
     expect(screen.getByRole("timer")).toHaveTextContent("5:00");
-    expect(h.fetchStub.callsTo(`POST ${B}/stations/station-1/claim-next`)[0]?.body).toEqual({ taskType: "PICK" });
+    expect(h.fetchStub.callsTo(`POST ${B}/stations/station-1/task-claims`)[0]?.body).toEqual({ taskType: "PICK" });
 
     // Every command carried its own Idempotency-Key; all three differ.
     const keys = h.fetchStub.calls.map((c) => c.headers["idempotency-key"]);
@@ -59,7 +59,7 @@ describe("station screen", () => {
   it("no work: claim-next 409 no-claimable-task is a calm 'nothing waiting' message and the operator stays put", async () => {
     const h = createHarness();
     seedStation(h.store, { station: STATION, occupantId: "worker-42" });
-    h.fetchStub.on(`POST ${B}/stations/station-1/claim-next`, problemResponse(409, "no-claimable-task", "No claimable task for station capabilities", "usecases: no claimable task for station capabilities"));
+    h.fetchStub.on(`POST ${B}/stations/station-1/task-claims`, problemResponse(409, "no-claimable-task", "No claimable task for station capabilities", "usecases: no claimable task for station capabilities"));
     const user = userEvent.setup();
     renderApp(h);
     await user.click(screen.getByRole("button", { name: "Pick" }));
@@ -73,7 +73,7 @@ describe("station screen", () => {
   it("problem path: claim-next 404 station-not-found tells the operator to register again", async () => {
     const h = createHarness();
     seedStation(h.store, { station: STATION, occupantId: "worker-42" });
-    h.fetchStub.on(`POST ${B}/stations/station-1/claim-next`, problemResponse(404, "station-not-found", "Station not found"));
+    h.fetchStub.on(`POST ${B}/stations/station-1/task-claims`, problemResponse(404, "station-not-found", "Station not found"));
     const user = userEvent.setup();
     renderApp(h);
     await user.click(screen.getByRole("button", { name: "Relocate" }));
@@ -83,7 +83,7 @@ describe("station screen", () => {
   it("problem path: check-in on an occupied station says who to ask, not 'HTTP 409'", async () => {
     const h = createHarness();
     seedStation(h.store, { station: { ...STATION, occupied: false } });
-    h.fetchStub.on(`POST ${B}/stations/station-1/check-in`, problemResponse(409, "station-occupied", "Station is already occupied", "station: already occupied"));
+    h.fetchStub.on(`POST ${B}/stations/station-1/check-ins`, problemResponse(409, "station-occupied", "Station is already occupied", "station: already occupied"));
     const user = userEvent.setup();
     renderApp(h);
     await user.type(screen.getByLabelText("Scan your badge"), "worker-7{Enter}");
@@ -94,19 +94,19 @@ describe("station screen", () => {
   it("check-out happy path returns to the check-in step; check-out is blocked while a task is held", async () => {
     const h = createHarness();
     seedStation(h.store, { station: STATION, occupantId: "worker-42" });
-    h.fetchStub.on(`POST ${B}/stations/station-1/check-out`, jsonResponse(200, { id: "station-1", capabilities: ["pick"], occupied: false }));
+    h.fetchStub.on(`POST ${B}/stations/station-1/check-outs`, jsonResponse(200, { id: "station-1", capabilities: ["pick"], occupied: false }));
     const user = userEvent.setup();
     renderApp(h);
     await user.click(screen.getByRole("button", { name: "Check out" }));
     expect(await screen.findByText("Checked out.")).toBeInTheDocument();
     expect(await screen.findByLabelText("Scan your badge")).toBeInTheDocument();
-    expect(h.fetchStub.callsTo(`POST ${B}/stations/station-1/check-out`)[0]?.body).toBeUndefined();
+    expect(h.fetchStub.callsTo(`POST ${B}/stations/station-1/check-outs`)[0]?.body).toBeUndefined();
   });
 
   it("problem path: check-out 409 station-not-occupied resyncs the screen", async () => {
     const h = createHarness();
     seedStation(h.store, { station: STATION, occupantId: "worker-42" });
-    h.fetchStub.on(`POST ${B}/stations/station-1/check-out`, problemResponse(409, "station-not-occupied", "Station is not occupied", "station: not occupied"));
+    h.fetchStub.on(`POST ${B}/stations/station-1/check-outs`, problemResponse(409, "station-not-occupied", "Station is not occupied", "station: not occupied"));
     const user = userEvent.setup();
     renderApp(h);
     await user.click(screen.getByRole("button", { name: "Check out" }));
@@ -130,7 +130,7 @@ describe("station screen", () => {
   it("offline: a check-in scan is saved and replayed with the SAME key on reconnect", async () => {
     const h = createHarness({ online: false });
     seedStation(h.store, { station: { ...STATION, occupied: false } });
-    h.fetchStub.on(`POST ${B}/stations/station-1/check-in`, jsonResponse(200, { id: "station-1", capabilities: ["pick"], occupied: true }));
+    h.fetchStub.on(`POST ${B}/stations/station-1/check-ins`, jsonResponse(200, { id: "station-1", capabilities: ["pick"], occupied: true }));
     const user = userEvent.setup();
     renderApp(h);
     window.dispatchEvent(new Event("offline"));

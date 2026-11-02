@@ -11,7 +11,7 @@ const B = "/api/inbound-receiving";
 const RID = "rcpt-1";
 const GET_RECEIPT = `GET ${B}/receipts/${RID}`;
 const SCANS = `POST ${B}/receipts/${RID}/scans`;
-const CLOSE = `POST ${B}/receipts/${RID}/close`;
+const CLOSE = `POST ${B}/receipts/${RID}/closures`;
 const LABEL = (lpn: string) => `GET ${B}/receipts/${RID}/cartons/${lpn}/label`;
 const SSCC = "340123450000000017";
 const CASE_GTIN = "13041090004824";
@@ -73,6 +73,23 @@ describe("receiving dock", () => {
     expect(await screen.findByRole("link", { name: RID })).toHaveAttribute("href", `/receiving/${RID}`);
     // No station, no task claim: nothing was asked of fulfillment-execution.
     expect(h.fetchStub.calls.every((c) => c.url.startsWith(B))).toBe(true);
+  });
+
+  it("follows nextCursor so receipts beyond the first page are listed too", async () => {
+    const h = createHarness();
+    const second = { ...RECEIPT, receiptId: "rcpt-page-2" };
+    h.fetchStub.on(`GET ${B}/receipts?state=Open&limit=50`, jsonResponse(200, { items: [RECEIPT], nextCursor: "abc/+=" }));
+    h.fetchStub.on(`GET ${B}/receipts?state=Open&limit=50&cursor=abc%2F%2B%3D`, jsonResponse(200, { items: [second] }));
+    renderApp(h, "/receiving");
+    expect(await screen.findByRole("link", { name: RID })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "rcpt-page-2" })).toBeInTheDocument();
+  });
+
+  it("says what happened when the list answers problem+json", async () => {
+    const h = createHarness();
+    h.fetchStub.on(`GET ${B}/receipts?state=Open&limit=50`, problemResponse(400, "invalid-cursor", "Invalid cursor"));
+    renderApp(h, "/receiving");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
   });
 
   it("a carton SSCC scan posts {kind, id} with its own key and shows the server's eaches", async () => {

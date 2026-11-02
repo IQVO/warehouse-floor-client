@@ -11,8 +11,8 @@ export const FULFILLMENT_BASE = "/api/fulfillment-execution";
 
 /**
  * Every value of the OpenAPI `AnyTaskType`, plus BREAK_CASE (ADR 0054): the
- * service creates and completes it (POST /tasks/{id}/break-case) but
- * `AnyTaskType` does not list it yet, so claim-next is not offered for it
+ * service creates and completes it (POST /tasks/{id}/case-breaks) but
+ * `AnyTaskType` does not list it yet, so task-claims is not offered for it
  * (see CLAIMABLE_TASK_TYPES and docs/docs/ecosystem/api-contract.md).
  */
 export const TASK_TYPES = ["PICK", "PACK", "SLAM", "REBIN", "DISPATCH", "ARRIVAL", "RELOCATE", "REPLENISH", "BREAK_CASE"] as const;
@@ -107,7 +107,7 @@ export function fulfillmentApi(runner: CommandRunner) {
     checkIn(stationId: string, occupantId: string): Promise<Outcome<Station>> {
       return runner.submit<Station>({
         kind: "check-in",
-        path: `${FULFILLMENT_BASE}/stations/${seg(stationId)}/check-in`,
+        path: `${FULFILLMENT_BASE}/stations/${seg(stationId)}/check-ins`,
         body: { occupantId },
         dedupeId: `check-in:${stationId}`,
         meta: { stationId, occupantId },
@@ -117,7 +117,7 @@ export function fulfillmentApi(runner: CommandRunner) {
     checkOut(stationId: string): Promise<Outcome<Station>> {
       return runner.submit<Station>({
         kind: "check-out",
-        path: `${FULFILLMENT_BASE}/stations/${seg(stationId)}/check-out`,
+        path: `${FULFILLMENT_BASE}/stations/${seg(stationId)}/check-outs`,
         dedupeId: `check-out:${stationId}`,
         meta: { stationId },
       });
@@ -131,7 +131,7 @@ export function fulfillmentApi(runner: CommandRunner) {
     claimNext(stationId: string, taskType: TaskType): Promise<Outcome<Task>> {
       return runner.submit<Task>({
         kind: "claim-next",
-        path: `${FULFILLMENT_BASE}/stations/${seg(stationId)}/claim-next`,
+        path: `${FULFILLMENT_BASE}/stations/${seg(stationId)}/task-claims`,
         body: { taskType },
         // One pending claim per station: asking again (even for another type)
         // must not leave two claims queued.
@@ -144,7 +144,7 @@ export function fulfillmentApi(runner: CommandRunner) {
     renewLease(taskId: string, stationId: string): Promise<Outcome<undefined>> {
       return runner.submit<undefined>({
         kind: "renew-lease",
-        path: `${FULFILLMENT_BASE}/tasks/${seg(taskId)}/renew-lease`,
+        path: `${FULFILLMENT_BASE}/tasks/${seg(taskId)}/lease-renewals`,
         body: { stationId },
         persist: false,
         meta: { taskId, stationId },
@@ -174,7 +174,7 @@ export function fulfillmentApi(runner: CommandRunner) {
     breakCase(taskId: string, stationId: string): Promise<Outcome<undefined>> {
       return runner.submit<undefined>({
         kind: "break-case",
-        path: `${FULFILLMENT_BASE}/tasks/${seg(taskId)}/break-case`,
+        path: `${FULFILLMENT_BASE}/tasks/${seg(taskId)}/case-breaks`,
         body: { stationId },
         dedupeId: `break-case:${taskId}`,
         meta: { taskId, stationId },
@@ -185,7 +185,7 @@ export function fulfillmentApi(runner: CommandRunner) {
     completeTask(taskId: string, stationId: string, confirmation: CompletionConfirmation = {}): Promise<Outcome<undefined>> {
       return runner.submit<undefined>({
         kind: "complete",
-        path: `${FULFILLMENT_BASE}/tasks/${seg(taskId)}/complete`,
+        path: `${FULFILLMENT_BASE}/tasks/${seg(taskId)}/completions`,
         body: { stationId, ...confirmation },
         dedupeId: `complete:${taskId}`,
         meta: { taskId, stationId },

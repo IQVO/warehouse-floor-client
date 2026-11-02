@@ -86,6 +86,8 @@
 .floor-banner { position: sticky; top: 0; z-index: 10; }
 .floor-banner--offline { background: var(--wh-color-status-danger-bg); border-color: var(--wh-color-status-danger); }
 .floor-banner--pending { background: var(--wh-color-status-warning-bg); border-color: var(--wh-color-status-warning); }
+.floor-banner--stuck { background: var(--wh-color-status-danger-bg); border-color: var(--wh-color-status-danger); }
+.floor-banner__actions { display: flex; gap: 0.5rem; }
 .floor-notice { flex-wrap: wrap; justify-content: flex-start; }
 .floor-notice p { margin: 0; }
 .floor-notice__what { font-weight: 600; flex: 1 1 100%; }

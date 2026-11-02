@@ -68,6 +68,11 @@ const BY_CODE: Record<string, Message> = {
     what: "The request could not be matched to your last action.",
     todo: `Reload the page and try again. ${CALL_LEAD}`,
   },
+  "idempotency-key-invalid": {
+    tone: "danger",
+    what: "The request could not be matched to your last action.",
+    todo: `Reload the page and try again. ${CALL_LEAD}`,
+  },
   "idempotency-key-reused": {
     tone: "danger",
     what: "That action conflicts with an earlier one that was sent with different details.",
@@ -134,7 +139,7 @@ const BY_CODE: Record<string, Message> = {
     what: "This task has no pick quantity to scan against.",
     todo: "Scan the order label and complete the task, or ask your lead.",
   },
-  // ---- POST /tasks/{id}/break-case (BREAK_CASE) ----
+  // ---- POST /tasks/{id}/case-breaks (BREAK_CASE) ----
   "case-break-rejected": {
     tone: "danger",
     what: "The storage system refused to break this case.",

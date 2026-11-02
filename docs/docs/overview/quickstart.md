@@ -87,18 +87,18 @@ is replayed with its original key.
 
 The stub enforces `Idempotency-Key` on every `POST` (stricter than the real
 service). Replaying a call with the same key and body returns the stored
-answer; the same key with another body is `422 idempotency-key-reused`.
+answer; the same key with another body is `409 idempotency-key-reused`.
 
 ```bash
 curl -s -X POST http://localhost:8787/api/fulfillment-execution/stations \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-1' \
   -d '{"stationId":"S1","capabilities":["pick"]}'
 
-curl -s -X POST http://localhost:8787/api/fulfillment-execution/stations/S1/check-in \
+curl -s -X POST http://localhost:8787/api/fulfillment-execution/stations/S1/check-ins \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-2' \
   -d '{"occupantId":"badge-7"}'
 
-curl -s -X POST http://localhost:8787/api/fulfillment-execution/stations/S1/claim-next \
+curl -s -X POST http://localhost:8787/api/fulfillment-execution/stations/S1/task-claims \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-3' \
   -d '{"taskType":"PICK"}'
 
@@ -108,8 +108,8 @@ curl -s -X POST http://localhost:8787/__stub/reset
 
 `POST /__stub/drop-next-response` applies the next command and cuts the
 connection before answering, which proves the client reuses its key. The stub
-implements stations, `claim-next`, `renew-lease`, `complete`, queue depth and
-the receiving endpoints; it does not implement the pick-scan or `break-case`
+implements stations, `task-claims`, `lease-renewals`, `completions`, queue depth and
+the receiving endpoints; it does not implement the pick-scan or `case-breaks`
 endpoints.
 
 ## Run it against the cluster

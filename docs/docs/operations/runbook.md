@@ -161,10 +161,10 @@ STUB_LEASE_MS=20000 npm run stub-api                         # :8787
 FLOOR_API_TARGET=http://localhost:8787 npm run dev            # :5174
 ```
 
-The stub implements stations, `claim-next`, `renew-lease`, `complete`, queue
+The stub implements stations, `task-claims`, `lease-renewals`, `completions`, queue
 depth and the receiving endpoints (receipts, scans, close, carton label) with
 the same Idempotency-Key rules as the specs. It does **not** implement the
-pick-scan (`POST /tasks/{id}/scans`) or `break-case` endpoints.
+pick-scan (`POST /tasks/{id}/scans`) or `case-breaks` endpoints.
 
 ## Observability
 

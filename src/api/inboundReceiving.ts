@@ -149,7 +149,7 @@ export function inboundReceivingApi(runner: CommandRunner) {
     closeReceipt(receiptId: string): Promise<Outcome<Receipt>> {
       return runner.submit<Receipt>({
         kind: "close-receipt",
-        path: `${RECEIVING_BASE}/receipts/${seg(receiptId)}/close`,
+        path: `${RECEIVING_BASE}/receipts/${seg(receiptId)}/closures`,
         dedupeId: `close-receipt:${receiptId}`,
         meta: { receiptId },
       });
@@ -184,10 +184,28 @@ export async function getJson<T>(path: string, fetchFn: typeof fetch = globalThi
   }
 }
 
+/** Pages followed for the open-receipts list (50 each): a bound, so a misbehaving server cannot loop the screen forever. */
+export const OPEN_RECEIPTS_MAX_PAGES = 20;
+
+/** Every open receipt: follows `nextCursor` until it is absent (STANDARD 5.2), up to OPEN_RECEIPTS_MAX_PAGES. */
+export async function listOpenReceipts(fetchFn?: typeof fetch): Promise<ReadResult<ReceiptPage>> {
+  const items: Receipt[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < OPEN_RECEIPTS_MAX_PAGES; page++) {
+    const query = `state=Open&limit=50${cursor === undefined ? "" : `&cursor=${encodeURIComponent(cursor)}`}`;
+    const result = await getJson<ReceiptPage>(`${RECEIVING_BASE}/receipts?${query}`, fetchFn);
+    if (result.state !== "done") return result;
+    items.push(...result.data.items);
+    cursor = result.data.nextCursor;
+    if (cursor === undefined || cursor === "") return { state: "done", data: { items } };
+  }
+  return { state: "done", data: { items, nextCursor: cursor } };
+}
+
 export const receivingReads = {
   getReceipt: (receiptId: string, fetchFn?: typeof fetch) =>
     getJson<Receipt>(`${RECEIVING_BASE}/receipts/${seg(receiptId)}`, fetchFn),
-  listOpenReceipts: (fetchFn?: typeof fetch) => getJson<ReceiptPage>(`${RECEIVING_BASE}/receipts?state=Open&limit=50`, fetchFn),
+  listOpenReceipts: (fetchFn?: typeof fetch) => listOpenReceipts(fetchFn),
   getCartonLabel: (receiptId: string, lpn: string, fetchFn?: typeof fetch) =>
     getJson<CartonLabel>(`${RECEIVING_BASE}/receipts/${seg(receiptId)}/cartons/${seg(lpn)}/label`, fetchFn),
 };

@@ -97,7 +97,7 @@ async function stubFlow() {
   // Reload: a new page load must resume with the stored key, not mint another.
   await page.reload();
   await page.getByText("You are not holding a task.").waitFor({ timeout: 15000 });
-  const completes = (await stubLog()).filter((e) => e.path.endsWith("/complete"));
+  const completes = (await stubLog()).filter((e) => e.path.endsWith("/completions"));
   expect(completes.length === 2, "server received the completion twice (original + replay after reload)");
   expect(completes.every((e) => e.key === savedKey), `both attempts carried the SAME Idempotency-Key (${savedKey})`);
   expect(completes[0].replayed === false && completes[1].replayed === true, "the server applied it once and replayed its stored answer the second time");
@@ -116,12 +116,12 @@ async function stubFlow() {
   await shot("5-offline-banner");
   await page.getByRole("button", { name: "Complete task" }).click();
   await page.getByText("Completion saved on this device.").waitFor();
-  const before = (await stubLog()).filter((e) => e.path.endsWith("/complete")).length;
+  const before = (await stubLog()).filter((e) => e.path.endsWith("/completions")).length;
   const offlineKey = (await page.evaluate(() => JSON.parse(localStorage.getItem("wfc.outbox.v1") ?? "[]")))[0]?.key;
   expect(before === 2, "nothing was sent while offline (the stub saw no new completion)");
   await context.setOffline(false);
   await page.getByText("You are not holding a task.").waitFor({ timeout: 15000 });
-  const after = (await stubLog()).filter((e) => e.path.endsWith("/complete"));
+  const after = (await stubLog()).filter((e) => e.path.endsWith("/completions"));
   expect(after.length === 3 && after[2].key === offlineKey && !after[2].replayed, "on reconnect the saved completion was sent once, with its saved key");
   await shot("6-after-reconnect");
 
@@ -143,7 +143,7 @@ async function stubFlow() {
   });
   if (leaseSeconds <= 60) {
     await page.waitForTimeout((leaseSeconds / 2 + 3) * 1000);
-    const renewals = (await stubLog()).filter((e) => e.path.endsWith("/renew-lease"));
+    const renewals = (await stubLog()).filter((e) => e.path.endsWith("/lease-renewals"));
     expect(renewals.length >= 1 && renewals[0].key !== null, `the lease was renewed on a timer at half-life (${renewals.length} renew-lease call(s), each with a key)`);
     const t2 = await page.getByRole("timer").textContent();
     expect(/^\d+:\d\d$/.test(t2 ?? ""), `countdown visible after renewal (${t2})`);
@@ -153,7 +153,7 @@ async function stubFlow() {
   }
 
   // ---- every command carried a key; different actions got different keys ----
-  const keyed = commands.filter((c) => !c.path.includes("/renew-lease") || c.key);
+  const keyed = commands.filter((c) => !c.path.includes("/lease-renewals") || c.key);
   expect(commands.length > 0 && commands.every((c) => c.key), `all ${commands.length} commands the browser sent carried an Idempotency-Key`);
   expect(commands.every((c) => c.path.startsWith(API + "/")), "every request went to same-origin /api/fulfillment-execution (Kong path), nothing else");
   void keyed;

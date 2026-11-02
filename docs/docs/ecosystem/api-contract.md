@@ -13,13 +13,13 @@ Source of truth: `apis/openapi.yaml` in IQVO/fulfillment-execution (read from `o
 | Action | Request | Success | Notes |
 |---|---|---|---|
 | Register | `POST /stations` `{stationId, capabilities[], locationCode?}` | `201` `Station` | upsert by `stationId` |
-| Check in | `POST /stations/{id}/check-in` `{occupantId}` | `200` `Station` | |
-| Check out | `POST /stations/{id}/check-out` (no body) | `200` `Station` | |
-| Claim next | `POST /stations/{id}/claim-next` `{taskType}` | `200` `Task` (CLAIMED, `leaseStationId`, `leaseExpiry`) | `AnyTaskType`: PICK, PACK, SLAM, REBIN, DISPATCH, ARRIVAL, RELOCATE, REPLENISH. The client offers PICK, RELOCATE, REPLENISH |
-| Renew lease | `POST /tasks/{id}/renew-lease` `{stationId}` | `204` | never queued |
+| Check in | `POST /stations/{id}/check-ins` `{occupantId}` | `200` `Station` | |
+| Check out | `POST /stations/{id}/check-outs` (no body) | `200` `Station` | |
+| Claim next | `POST /stations/{id}/task-claims` `{taskType}` | `200` `Task` (CLAIMED, `leaseStationId`, `leaseExpiry`) | `AnyTaskType`: PICK, PACK, SLAM, REBIN, DISPATCH, ARRIVAL, RELOCATE, REPLENISH. The client offers PICK, RELOCATE, REPLENISH |
+| Renew lease | `POST /tasks/{id}/lease-renewals` `{stationId}` | `204` | never queued |
 | Pick scan | `POST /tasks/{id}/scans` `{stationId, gtin, count}` | `200` `PickScanResult` `{scannedGtin, sku, level, addedEaches, pickedEaches, plannedEaches}` | `gtin` is the 14-digit form; `count` is packs scanned (the client sends 1 per physical scan; the server multiplies a case) |
-| Break case | `POST /tasks/{id}/break-case` `{stationId}` | `204` | the `BREAK_CASE` task type, which `AnyTaskType` does not list yet |
-| Complete | `POST /tasks/{id}/complete` `{stationId, quantity?, fromBin?, toBin?}` | `204` | quantity/bins for RELOCATE and REPLENISH only |
+| Break case | `POST /tasks/{id}/case-breaks` `{stationId}` | `204` | the `BREAK_CASE` task type, which `AnyTaskType` does not list yet |
+| Complete | `POST /tasks/{id}/completions` `{stationId, quantity?, fromBin?, toBin?}` | `204` | quantity/bins for RELOCATE and REPLENISH only |
 
 `Station` is `{id, capabilities[], occupied, locationCode?}`. Every command also sends `Idempotency-Key`.
 
@@ -38,7 +38,7 @@ Every error is `application/problem+json` with `type` (`https://errors.fulfillme
 | `task-not-owner` | 409 | renew, complete | Another station now holds this task. / Pull the next task. (task dropped) |
 | `task-already-completed` | 409 | complete | This task was already completed. / Pull the next task. (treated as done) |
 | `invalid-request` | 400 | any | The system could not accept that... / Check what you scanned or typed and try again. |
-| `idempotency-key-required` / `-reused` | 400 / 422 | any | The request could not be matched to your last action. / Reload and try again. |
+| `idempotency-key-required` / `-invalid` / `-reused` | 400 / 400 / 409 | any | The request could not be matched to your last action. / Reload and try again. |
 | `station-location-not-workcenter` | 422 | register | That location is not a work center. / Scan a work-center location label, or leave it empty. |
 | `relocation-confirmation-required` | 422 | complete | A move is finished with the counted quantity and the bin scans. / ... |
 | `invalid-relocation-confirmation` | 422 | complete | The bins you scanned do not fit the planned move. / Rescan the bins shown on the task. |
@@ -70,10 +70,10 @@ Source of truth: `apis/openapi.yaml` in IQVO/inbound-receiving (`origin/develop`
 
 | Action | Request | Success | Notes |
 |---|---|---|---|
-| List open receipts | `GET /receipts?state=Open&limit=50` | `200` `{items: Receipt[], nextCursor?}` | first page only |
+| List open receipts | `GET /receipts?state=Open&limit=50` | `200` `{items: Receipt[], nextCursor?}` | the client follows `nextCursor` (`cursor` query parameter) until absent, up to 20 pages |
 | Get a receipt | `GET /receipts/{receiptId}` | `200` `Receipt` | |
 | Receive by scan | `POST /receipts/{receiptId}/scans` `{kind, id, qty?, lot?, expiry?, countedContents?}` | `201` accepted / `200` refused with findings, both `ScanResult` | `Idempotency-Key` required. `qty` = cases for `CASE_GTIN`, eaches for `EACH_GTIN`. Fields exactly as `ReceiveScanRequest` (the raw-`scan` form is not used) |
-| Close | `POST /receipts/{receiptId}/close` (no body) | `200` `Receipt` (Closed, with Short/Over/Damaged) | key optional in the spec, sent anyway |
+| Close | `POST /receipts/{receiptId}/closures` (no body) | `200` `Receipt` (Closed, with Short/Over/Damaged) | key optional in the spec, sent anyway |
 | Carton label data | `GET /receipts/{receiptId}/cartons/{lpn}/label` | `200` `{lpn, symbology:"CODE128", humanReadable, sku?, units, receivedAt}` | `404 carton-not-found` |
 
 Errors are `application/problem+json`, `type` = `https://errors.inbound-receiving.warehouse-systems.dev/<slug>`; the client keys on `<slug>` and never shows `detail`. Copy for the slugs a dock operator can meet is in `src/api/receivingMessages.ts` (`receipt-not-found`, `invalid-receipt-id`, `receipt-closed`, `scan-kind-mismatch`, `invalid-sscc`, `invalid-gtin`, `unsupported-gtin`, `unsupported-pack-level`, `invalid-scan(-kind)`, `invalid-cases`, `invalid-quantity`, `invalid-counted-contents`, `counted-contents-not-mixed`, `counted-sku-unknown`, `carton-not-found`, `version-mismatch`, `concurrent-modification`, `dependency-unavailable`, `malformed-request`); idempotency, 5xx and gateway answers fall back to the shared table above. `429/502/503/504` are retried, not shown.
