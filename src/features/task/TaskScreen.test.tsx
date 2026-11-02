@@ -6,8 +6,8 @@ import { createHarness, PICK_TASK, renderApp, seedStation, STATION, type Harness
 import { jsonResponse, noContent, problemResponse } from "../../test/fetchStub";
 
 const B = "/api/fulfillment-execution";
-const COMPLETE = (id: string) => `POST ${B}/tasks/${id}/complete`;
-const RENEW = (id: string) => `POST ${B}/tasks/${id}/renew-lease`;
+const COMPLETE = (id: string) => `POST ${B}/tasks/${id}/completions`;
+const RENEW = (id: string) => `POST ${B}/tasks/${id}/lease-renewals`;
 
 function held(h: Harness, task: Task, leaseMs = 300_000) {
   seedStation(h.store, {
@@ -300,7 +300,7 @@ describe("claimed task from a queued claim", () => {
   it("a claim-next saved offline lands on the task when it replays (jsonResponse smoke)", async () => {
     const h = createHarness();
     seedStation(h.store, { station: STATION, occupantId: "worker-42" });
-    h.fetchStub.on(`POST ${B}/stations/station-1/claim-next`, jsonResponse(200, PICK_TASK));
+    h.fetchStub.on(`POST ${B}/stations/station-1/task-claims`, jsonResponse(200, PICK_TASK));
     h.connectivity.setBrowserOnline(false);
     const user = userEvent.setup();
     renderApp(h);

@@ -95,7 +95,7 @@ describe("service worker", () => {
 
   it.each(["POST", "PUT", "PATCH", "DELETE"])("never intercepts a %s: commands always go to the network", (method) => {
     const w = loadWorker();
-    const e = fetchEvent("https://floor.example/api/fulfillment-execution/tasks/1/complete", { method });
+    const e = fetchEvent("https://floor.example/api/fulfillment-execution/tasks/1/completions", { method });
     w.handlers.fetch?.(e.event);
     expect(e.responded).toBeUndefined();
   });

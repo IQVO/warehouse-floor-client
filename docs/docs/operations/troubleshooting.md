@@ -26,17 +26,17 @@ table in [API contract](/docs/ecosystem/api-contract).
 | Banner "Sending saved actions: N saved actions are waiting" never clears | the oldest outbox entry keeps failing with a retryable answer, and replay stops at the first stuck command to keep order | Local Storage `wfc.outbox.v1`: first entry, its `attempts` and `path`; Network tab: the status it gets | fix the edge or service that answers `5xx`/`429`; "Retry now" replays immediately. Last resort: delete `wfc.outbox.v1`, which **discards** the saved commands |
 | "The system does not know that barcode" / "That is not the item for this pick" on a PICK scan | the scanned GTIN is unknown to fulfillment-execution, or belongs to another SKU or pack level | `[floor] command rejected pick-scan 4xx <code>` in the console | rescan the right item or case; nothing was counted |
 | "The request could not be matched to your last action" | `idempotency-key-required` or `-reused`: the service saw a missing key, or a key with a different body | Network tab: request has `Idempotency-Key`? | reload and retry; if the key is missing a screen bypassed the runner, which is a bug |
-| "An extra task was claimed when the connection came back" | a `claim-next` was saved offline, replayed after the operator had already claimed another task. fulfillment-execution does not deduplicate `claim-next` by key | the warning is shown by design | ignore the extra task: its lease lapses back to the pool |
+| "An extra task was claimed when the connection came back" | a `task-claims` was saved offline, replayed after the operator had already claimed another task. fulfillment-execution does not deduplicate `task-claims` by key | the warning is shown by design | ignore the extra task: its lease lapses back to the pool |
 | "This task was already completed" after tapping Complete | the first completion reached the service but its answer was lost; the replay got `409 task-already-completed`, which the client treats as success | none needed | pull the next task |
-| "You no longer hold this task" | the lease ran out, or another station took the task (`task-not-claimed`, `task-not-owner`, `task-not-found`); the client drops the held task | `renew-lease` failing in the Network tab before it | pull the next task; check that renewal is not blocked (see lease rows below) |
+| "You no longer hold this task" | the lease ran out, or another station took the task (`task-not-claimed`, `task-not-owner`, `task-not-found`); the client drops the held task | `lease-renewals` failing in the Network tab before it | pull the next task; check that renewal is not blocked (see lease rows below) |
 
 ## Station and lease
 
 | Symptom | Likely cause | Check | Fix |
 |---|---|---|---|
-| "This station is not registered with the system" | `station-not-found`: the service restarted or lost its in-memory stations | Network tab: `claim-next` or `check-in` → `404` | use "Register this station again" on the station screen |
+| "This station is not registered with the system" | `station-not-found`: the service restarted or lost its in-memory stations | Network tab: `task-claims` or `check-in` → `404` | use "Register this station again" on the station screen |
 | Check-in answers "Someone is already checked in" | `station-occupied`; also seen when a `check-in` replay lands after the first one was applied | station screen shows operator | check the other person out, or use another station |
-| Countdown turns to "Could not renew" | `renew-lease` cannot reach the edge. It is never queued; it is retried every 10 s from half-life | Network tab: `renew-lease` failing | restore connectivity before the claim runs out; otherwise the claim lapses |
+| Countdown turns to "Could not renew" | `lease-renewals` cannot reach the edge. It is never queued; it is retried every 10 s from half-life | Network tab: `lease-renewals` failing | restore connectivity before the claim runs out; otherwise the claim lapses |
 | Lease length looks wrong | the length is `leaseExpiry` minus the response `Date`; outside 10 s to 60 min it falls back to 5 min | claim response `leaseExpiry` and `Date` | none; the client works in the local clock so device clock skew does not matter |
 | "Cannot finish here" on the task screen | the held task type has no confirmation plan in this version (PACK, SLAM, REBIN, DISPATCH, ARRIVAL) | the task type in the header | ask the lead to move the task; the lease keeps renewing while the page is open |
 | Task screen says "No task in hand" after a reload | `wfc.station.v1` was cleared, or its `held` section failed validation (`loadPersisted` drops it) | Local Storage | pull the next task |
@@ -81,7 +81,7 @@ table in [API contract](/docs/ecosystem/api-contract).
 | `/api` calls return connection refused in dev | `FLOOR_API_TARGET` points at Kong (default `http://localhost:8000`) and the cluster is not running | start the cluster, or run `npm run stub-api` and set `FLOOR_API_TARGET=http://localhost:8787` |
 | E2E flow cannot launch Chromium | Playwright browsers not installed | `npx playwright install chromium`, or set `E2E_CHROMIUM` |
 | Lease renewal is skipped in `e2e:station` | the stub was started with the default 5-minute lease | start it with `STUB_LEASE_MS=20000` |
-| Pick scan or break-case fails against the stub | the stub implements neither endpoint | use the unit tests (`PickScan.test.tsx`, `TaskScreen.test.tsx`) or a real fulfillment-execution |
+| Pick scan or case-breaks fails against the stub | the stub implements neither endpoint | use the unit tests (`PickScan.test.tsx`, `TaskScreen.test.tsx`) or a real fulfillment-execution |
 | Vitest "Invalid hook call" or a null dispatcher | a second React instance from the ui-kit sibling | keep `resolve.dedupe: ["react", "react-dom"]` in `vite.config.ts` (vitest merges it) |
 | Vitest throws `fetchStub: unhandled <METHOD> <url>` | `src/test/fetchStub.ts` throws on an unmatched request by design | add the route to the test's stub |
 | Docker build: `Cannot find native binding` | building with the macOS-generated lockfile | build with the repo `Dockerfile`, which installs without the lockfile |

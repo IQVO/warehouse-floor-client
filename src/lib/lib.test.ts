@@ -8,7 +8,7 @@ import { parseProblem, problemCode } from "./problem";
 import { MemoryStore } from "./storage";
 import { createFetchStub, jsonResponse, noContent, problemResponse } from "../test/fetchStub";
 
-const COMPLETE = "POST /api/fulfillment-execution/tasks/t-1/complete";
+const COMPLETE = "POST /api/fulfillment-execution/tasks/t-1/completions";
 
 function setup(options: { online?: boolean } = {}) {
   const store = new MemoryStore();
@@ -27,7 +27,7 @@ function setup(options: { online?: boolean } = {}) {
 
 const completeSpec = {
   kind: "complete",
-  path: "/api/fulfillment-execution/tasks/t-1/complete",
+  path: "/api/fulfillment-execution/tasks/t-1/completions",
   body: { stationId: "s-1" },
   dedupeId: "complete:t-1",
   meta: { taskId: "t-1" },
@@ -107,8 +107,8 @@ describe("command runner: Idempotency-Key", () => {
 
   it("gives a fire-and-forget command a fresh key per attempt and never queues it", async () => {
     const { runner, fetchStub, outbox } = setup();
-    const spec = { kind: "renew-lease", path: "/api/fulfillment-execution/tasks/t-1/renew-lease", body: { stationId: "s-1" }, persist: false };
-    fetchStub.on("POST /api/fulfillment-execution/tasks/t-1/renew-lease", noContent());
+    const spec = { kind: "renew-lease", path: "/api/fulfillment-execution/tasks/t-1/lease-renewals", body: { stationId: "s-1" }, persist: false };
+    fetchStub.on("POST /api/fulfillment-execution/tasks/t-1/lease-renewals", noContent());
     await runner.submit(spec);
     fetchStub.failNext(1);
     const failed = await runner.submit(spec);

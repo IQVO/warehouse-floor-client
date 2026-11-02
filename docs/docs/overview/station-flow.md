@@ -23,7 +23,7 @@ Code: `src/features/station/StationScreen.tsx`, state in
 2. **Check in.** Scan the badge (`occupantId`). One occupant at a time: a
    second check-in is `409 station-occupied`.
 3. **Pull work.** One button per claimable type: Pick, Relocate, Replenish
-   (`CLAIMABLE_TASK_TYPES`). `claim-next` returns `200` with the task and a
+   (`CLAIMABLE_TASK_TYPES`). `task-claims` returns `200` with the task and a
    lease, or `409 no-claimable-task` when the pool has nothing this station can
    do (shown as a calm "nothing waiting", not an error), or
    `404 station-not-found` when the station is not registered (for example the
@@ -56,7 +56,7 @@ Code: `src/features/task/TaskScreen.tsx`, `confirmPlan.ts`, `scanCopy.ts`.
 | PICK | the order label (`orderRef`, case-insensitive; the task id when there is no `orderRef`); item and case barcodes are counted as they are picked (below) | no | `{stationId}` |
 | RELOCATE | source bin, destination bin; a side the plan fixes must match it, an open side (source of an Assign, destination of a Vacate) accepts any scan; the two bins must differ | counted, >= 1 | `{stationId, quantity, fromBin, toBin}` |
 | REPLENISH | reserve bin, pick face: must match the plan | counted, defaults to the planned quantity | `{stationId, quantity, fromBin, toBin}` |
-| BREAK_CASE | none: the **Break case** button | no | `POST /tasks/{id}/break-case` `{stationId}` |
+| BREAK_CASE | none: the **Break case** button | no | `POST /tasks/{id}/case-breaks` `{stationId}` |
 
 A fixed side is sent with the planned spelling, so a lower-case manual entry
 cannot trip the service's equality check.
@@ -79,7 +79,7 @@ work after item scans.
 ### Breaking a case
 
 A `BREAK_CASE` task shows no scan field. **Break case** sends
-`POST /tasks/{id}/break-case` `{stationId}` and, on `204`, ends the task in one
+`POST /tasks/{id}/case-breaks` `{stationId}` and, on `204`, ends the task in one
 step. The action is keyed once per task (`dedupeId = break-case:<taskId>`), so
 a re-tap or a reload reuses its key; `503 case-break-unavailable` is retried,
 not shown as a failure.
@@ -90,7 +90,7 @@ not shown as a failure.
   claim time (`leaseExpiry` minus the response `Date`), accepts 10 s to 60 min,
   falls back to 5 minutes, and keeps the deadline in the **local** clock, so
   device clock skew cannot corrupt the countdown.
-- At half-life (or less) the client calls `POST /tasks/{id}/renew-lease`
+- At half-life (or less) the client calls `POST /tasks/{id}/lease-renewals`
   (`204`, no body). It retries a failed renewal no more often than every 10 s. A
   successful renewal resets the local deadline to a full lease.
 - `409 task-not-claimed` / `task-not-owner` or `404 task-not-found` on renew,
@@ -114,7 +114,7 @@ claim and no auth layer (fleet decision 2026-09-11), and a receipt is worked by
 whoever stands at the dock. So the smallest additive change was taken:
 
 - two routes beside `/` and `/task`, plus a "Receiving" nav item (`Layout`);
-  nothing in `StationProvider`, the lease logic or the pick and break-case
+  nothing in `StationProvider`, the lease logic or the pick and case-breaks
   screens changed by it;
 - no station id, no occupant id, no capability: the receipt id in the URL is the
   whole context;

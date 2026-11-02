@@ -59,7 +59,7 @@ and clears `localStorage`.
 | Operator messages | `src/api/problemMessages.test.ts` | known codes map to what-and-what-to-do text; a gateway HTML `404` is a setup problem and a `5xx` "not answering"; an unknown code falls back to the service's own title; a queued action says it need not be repeated |
 | Scan input | `src/components/ScanInput.test.tsx`, `src/lib/scan.test.ts` | focus on mount and when dropped on nothing, never stolen from another field; Enter-terminated scans; bounced trigger is one scan; control characters stripped; "Type instead" fallback |
 | Station | `StationScreen.test.tsx`, `TaskScreen.test.tsx` | register, check-in by badge scan, claim, check-out; `no-claimable-task`, `station-not-found`, `station-occupied`, `station-not-occupied` copy; lease countdown and half-life renewal with its own key (fake timers); `task-not-claimed` drops the task; `task-already-completed` is success; completion saved offline and replayed with the same key, also after a reload |
-| Pick and case break | `PickScan.test.tsx`, `confirmPlan.test.ts` | each pick scan posts `{stationId, gtin, count: 1}` with its own key; GS1-128 case label sends only the GTIN-14; `task-not-owner` drops the task; offline and reload replay with the saved key; `break-case` screen, `case-break-unavailable` retried; completion plans for PICK, RELOCATE, REPLENISH and "not finished in this release" for PACK, SLAM, REBIN, DISPATCH, ARRIVAL |
+| Pick and case break | `PickScan.test.tsx`, `confirmPlan.test.ts` | each pick scan posts `{stationId, gtin, count: 1}` with its own key; GS1-128 case label sends only the GTIN-14; `task-not-owner` drops the task; offline and reload replay with the saved key; `case-breaks` screen, `case-break-unavailable` retried; completion plans for PICK, RELOCATE, REPLENISH and "not finished in this release" for PACK, SLAM, REBIN, DISPATCH, ARRIVAL |
 | Receiving | `ReceivingScreen.test.tsx`, `gs1.test.ts`, `barcode.test.ts` | open receipts list; SSCC, case and each scans with their own keys; cases are never multiplied on the device; scans refused before any request; mixed-carton audit; refused scan versus finding; `CartonOverLimit` and `UnlabelledCarton` (label fetched and printed); offline scan replay |
 
 ## Test approach
@@ -117,7 +117,7 @@ The stub enforces `Idempotency-Key` on every `POST` and replays the stored
 answer for a repeated key (stricter than the real fulfillment-execution, which
 does so on `POST /tasks` only), and can apply a command and then cut the
 connection (`POST /__stub/drop-next-response`) to prove the client reuses its
-key. It does not implement the pick-scan and `break-case` endpoints; those are
+key. It does not implement the pick-scan and `case-breaks` endpoints; those are
 covered by the unit and screen tests only.
 
 ## CI jobs (`.github/workflows/ci.yml`)

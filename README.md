@@ -59,7 +59,8 @@ Every `POST`/`PUT` sends `Idempotency-Key`. The key identifies **one user action
 - minted **once**, when the action is first submitted;
 - written to the persisted outbox **before** the request is sent, so a reload cannot lose or replace it;
 - **reused** on every retry: automatic replay, reconnect, reload, the operator tapping the button again (same action, same body);
-- a different action, or the same action with a different body, gets a **new** key (the service answers `422 idempotency-key-reused` otherwise).
+- a different action, or the same action with a different body, gets a **new** key (the service answers `409 idempotency-key-reused` otherwise; a replay carries `Idempotency-Replayed: true`).
+- a command queued by an older build is migrated to the new route names when the outbox is read, keeping its key (`src/lib/outboxMigration.ts`, ADR 0001).
 
 All of it lives in `src/lib/commands.ts` + `src/lib/outbox.ts`. A screen never builds a `fetch` for a command; it calls the runner. Details and edge cases: [docs/docs/overview/offline-and-idempotency.md](docs/docs/overview/offline-and-idempotency.md).
 
@@ -71,7 +72,7 @@ When the network is down the app shows a persistent **offline banner**, queues c
 
 ### 3b. Lease handling
 
-Claims are leased (5 minutes by default). The task screen shows a visible countdown and calls `renew-lease` automatically at half-life. Renewals are fire-and-forget: never queued (a renewal replayed an hour later is noise), each with its own key.
+Claims are leased (5 minutes by default). The task screen shows a visible countdown and calls `lease-renewals` automatically at half-life. Renewals are fire-and-forget: never queued (a renewal replayed an hour later is noise), each with its own key.
 
 ### 4. Scan first
 
