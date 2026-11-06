@@ -31,6 +31,7 @@ stub-api:
 e2e:
 	npm run e2e:station
 	npm run e2e:receiving
+	npm run e2e:yard
 # Needs the sibling checkout: ../warehouse-ui-kit
 image:
 	docker build --build-context uikit=../warehouse-ui-kit -t warehouse-floor-client .
