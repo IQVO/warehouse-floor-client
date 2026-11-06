@@ -23,23 +23,26 @@ graph LR
   Kong["Kong :8000<br/>/api/context"]
   FE["fulfillment-execution<br/>/api/fulfillment-execution"]
   IR["inbound-receiving<br/>/api/inbound-receiving"]
+  YM["yard-management<br/>/api/yard-management"]
   UI["warehouse-ui-kit<br/>(build-time package)"]
 
   Op --> FC
   FC -->|"REST, same origin"| Kong
   Kong --> FE
   Kong --> IR
+  Kong --> YM
   UI -.->|"file: dependency"| FC
 ```
 
 Source: `src/api/fulfillmentExecution.ts` (`FULFILLMENT_BASE`),
-`src/api/inboundReceiving.ts` (`RECEIVING_BASE`), `package.json`,
+`src/api/inboundReceiving.ts` (`RECEIVING_BASE`), `src/api/yardManagement.ts` (`YARD_BASE`), `package.json`,
 `vite.config.ts`.
 
 | Direction | Peer | Protocol | Used for | In code |
 |---|---|---|---|---|
 | Downstream of | fulfillment-execution | REST/JSON through Kong, `application/problem+json` errors | register a station, check in/out, claim the next task, renew its lease, scan-confirm a pick, break a case, complete | `src/api/fulfillmentExecution.ts` |
 | Downstream of | inbound-receiving | REST/JSON through Kong | list and read receipts, receive scans, close a receipt, fetch a carton label | `src/api/inboundReceiving.ts` |
+| Downstream of | yard-management | REST/JSON through Kong | gate check-in/out/rejection, claim and complete yard moves, door work, list visits, trailers and moves | `src/api/yardManagement.ts` |
 | Build-time | warehouse-ui-kit | npm `file:../warehouse-ui-kit` (sibling checkout) | `AppShell`, `Card`, `StatusPill`, `NavigationProvider`, design tokens | `package.json`, `src/app/Layout.tsx`, `src/main.tsx` |
 | Edge | Kong | HTTP on the page's own origin | routes every `/api/<context>` | `vite.config.ts` (dev proxy), `nginx.conf` (guard) |
 | Documented but absent | inventory-storage, workforce-management | n/a | `AGENTS.md` names them as target contexts; no code calls them | none |
@@ -57,7 +60,8 @@ direction (the fleet is unauthenticated by decision).
 - **One context per screen.** A screen calls only the API of its own context; a
   flow that needs two contexts would make two explicit calls and show each
   result. Today station and task screens use fulfillment-execution only and the
-  receiving screens use inbound-receiving only.
+  receiving screens use inbound-receiving only; the gate, hostler and dock
+  screens use yard-management only.
 - **Commands carry an `Idempotency-Key`**, minted once per operator action and
   reused on every retry; reads (`GET`) carry none.
 - **Errors are for operators.** `application/problem+json` is keyed on the last
@@ -150,6 +154,34 @@ Behaviour to rely on:
 | a read (`GET`) fails | the screen shows the problem or an "unreachable" note; reads are never queued or cached |
 | `dependency-unavailable`, `version-mismatch`, `concurrent-modification` | operator copy from `src/api/receivingMessages.ts` |
 | slug the build does not know | falls back to the service's `title` plus "call your lead" |
+
+## yard-management
+
+Base path `/api/yard-management`. Contract: `apis/openapi.yaml` in
+IQVO/yard-management. Flow, keys and copy: [Yard flow](/docs/overview/yard-flow);
+endpoints: [API contract](./api-contract.md#api-contract-yard-management).
+
+Behaviour to rely on:
+
+- Creating `POST`s take `Idempotency-Key` (read from the spec; not exercised
+  against a live service from this repo; the stub implements the same rule).
+- The system picks the next move (pull dispatch); the client never chooses one.
+- The lease of a claimed move cannot be renewed; a move not completed in time
+  goes back to the queue. The screen says so.
+- Lists are keyset-paged (`limit`, `cursor`) and followed to the end, bounded to
+  10 pages of 500.
+- The Kong route for `/api/yard-management` comes from warehouse-infra and is
+  not part of this repo; until it exists a deployed build answers the gateway's
+  404 and the screens say the floor service cannot be reached at this address.
+
+### Failure behaviour
+
+| Answer | Client behaviour |
+|---|---|
+| network error, timeout, `429/502/503/504` on a command | saved with its key and replayed; the answer is shown when it arrives |
+| a read (`GET`) fails | the screen shows the problem or an "unreachable" note; reads are never queued or cached |
+| `not-lease-holder`, `illegal-transition`, `move-not-found` on completing a hostler move | the held move is dropped; the hostler claims the next one |
+| any other slug | operator copy from `src/api/yardMessages.ts`; unknown: the service's `title` plus "call your lead" |
 
 ## warehouse-ui-kit
 

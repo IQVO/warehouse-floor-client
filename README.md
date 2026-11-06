@@ -4,7 +4,7 @@
 
 Scan-first PWA for RF guns and station screens: the first-party client for the warehouse floor-execution APIs (claim, complete, pack, stow, shift clock).
 
-This first cut is the foundation plus one slice, **fulfillment-execution stations**: register, check in/out, claim the next task, scan to confirm, keep the lease alive, complete.
+Slices so far: **fulfillment-execution stations** (register, check in/out, claim the next task, scan to confirm, keep the lease alive, complete), **receiving** (inbound-receiving: scan cartons, cases and items against a receipt) and the **yard** (yard-management): a gate clerk checks trucks in, rejects and checks them out, a hostler claims and completes yard moves, a dock operator runs door work and confirms visiting drivers.
 
 | | |
 |---|---|
@@ -36,8 +36,9 @@ npm run dev                             # http://localhost:5174, /api proxied to
 |---|---|
 | `make check` | lint, typecheck, test, build, docs: what CI runs |
 | `npm run dev` | dev server on :5174. `/api` is proxied to `FLOOR_API_TARGET` (default `http://localhost:8000`, Kong's host port in the kind cluster) |
-| `npm run stub-api` | in-memory fulfillment-execution on :8787, shaped from the OpenAPI examples. Use with `FLOOR_API_TARGET=http://localhost:8787 npm run dev` |
+| `npm run stub-api` | in-memory fulfillment-execution, inbound-receiving and yard-management (site `WH1`) on :8787, shaped from the OpenAPI examples. Use with `FLOOR_API_TARGET=http://localhost:8787 npm run dev` |
 | `npm run e2e:station` | drives the station flow in headless Chromium (needs the dev server + stub, or `E2E_MODE=real`) |
+| `npm run e2e:receiving`, `npm run e2e:yard` | the receiving and yard flows in headless Chromium (dev server + stub) |
 | `make image` | `docker build --build-context uikit=../warehouse-ui-kit ...` |
 
 Browsers only run service workers on `https` or `http://localhost`. On plain `http://<lan-host>` the app works but without the offline app shell (the offline outbox still works: it needs no service worker).
@@ -48,7 +49,7 @@ These are the conventions (there is no agent-guide file yet; this is the source 
 
 ### 1. Kong only, same origin
 
-The app talks to each owning context's REST **only** through Kong, at the page's own origin: `/api/<context>/...` (`/api/fulfillment-execution`, `/api/workforce-management`, `/api/inventory-storage`, ...). Relative paths, never an absolute URL, never a service host or port, no BFF, no runtime config file. In dev, Vite proxies `/api` (see `vite.config.ts`); in the cluster the edge must route `/api` to Kong at the same host that serves this app (`nginx.conf` answers `/api/` with a 404 problem+json so a mis-route is obvious, never an SPA-fallback `200`).
+The app talks to each owning context's REST **only** through Kong, at the page's own origin: `/api/<context>/...` (`/api/fulfillment-execution`, `/api/inbound-receiving`, `/api/yard-management`, ...). The Kong route for a new context comes from warehouse-infra; until it exists a deployed build answers the gateway's 404 and the screens say the service cannot be reached at this address. Relative paths, never an absolute URL, never a service host or port, no BFF, no runtime config file. In dev, Vite proxies `/api` (see `vite.config.ts`); in the cluster the edge must route `/api` to Kong at the same host that serves this app (`nginx.conf` answers `/api/` with a 404 problem+json so a mis-route is obvious, never an SPA-fallback `200`).
 
 The fleet is unauthenticated by decision: no login, no tokens, no `Authorization` header.
 
@@ -78,6 +79,8 @@ Claims are leased (5 minutes by default). The task screen shows a visible countd
 
 Barcodes enter through one component, `src/components/ScanInput.tsx`: a focus-locked input that captures keyboard-wedge input terminated by Enter, with a "Type instead" manual-entry fallback and an on-screen Enter. Controls are at least 56px tall (primary actions 72px). Do not add ad-hoc `<input>`s for scanned values.
 
+Yard locations (spots, doors) and trailer unit numbers are scanned through `readYardCode` (`src/features/yard/yardScan.ts`), which runs `parseScan` first: a GS1 product or carton barcode is refused as "not a spot or door label"; anything not GS1 (a facility-layout `locationCode` such as `WH1-DOCK-IN-01`, a painted unit number) is used as scanned. A yard label that is only digits and is a valid GTIN or SSCC cannot be scanned as one.
+
 ### 5. Errors are for operators
 
 A Problem+JSON response is turned into **what happened + what to do** in plain words (`src/api/problemMessages.ts`). Never render raw JSON, the HTTP status, or the service's `detail` string. Add the new error code to the table in [docs/docs/ecosystem/api-contract.md](docs/docs/ecosystem/api-contract.md) and to the test when the service gains one.
@@ -94,10 +97,10 @@ GitFlow: feature branch, one PR into `develop`, never push `develop` or `main`. 
 
 ```
 src/lib/        command runner, outbox, connectivity, scan, problem, log   (no React)
-src/api/        fulfillment-execution client + operator-facing error text
+src/api/        fulfillment-execution, inbound-receiving and yard-management clients + operator-facing error text
 src/app/        services context, layout, router link
 src/components/ ScanInput, OfflineBanner, NoticeBar, LeaseCountdown
-src/features/   station/ (register, check-in/out, claim), task/ (confirm, renew, complete), receiving/ (dock scans)
+src/features/   station/ (register, check-in/out, claim), task/ (confirm, renew, complete), receiving/ (dock scans), yard/ (gate, hostler, dock)
 src/pwa/        service-worker registration
 public/         manifest, icons, sw.js (hand-written)
 build/          Vite plugin that stamps the precache list
@@ -123,6 +126,7 @@ no ADRs: its decisions are the rules above.
 | Overview | [Offline and idempotency](docs/docs/overview/offline-and-idempotency.md) | the key rule, the outbox, the service worker |
 | Overview | [Station flow](docs/docs/overview/station-flow.md) | register, check in, claim, pick scans, lease, complete |
 | Overview | [Receiving flow](docs/docs/overview/receiving-flow.md) | receipts, scans, findings, label print |
+| Overview | [Yard flow](docs/docs/overview/yard-flow.md) | gate check-in/out/reject, hostler claim and complete, dock door work, trailer rules, keys, error copy |
 | Operations | [Configuration](docs/docs/operations/configuration.md) | env vars (none at build time), `FLOOR_API_TARGET`, nginx, constants, storage keys |
 | Operations | [Runbook](docs/docs/operations/runbook.md) | image, edge requirements, releases, offline behaviour |
 | Operations | [Troubleshooting](docs/docs/operations/troubleshooting.md) | symptom, cause, check, fix |

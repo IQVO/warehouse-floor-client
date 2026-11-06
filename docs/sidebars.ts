@@ -11,7 +11,7 @@ const sidebars: SidebarsConfig = {
       label: 'Overview',
       collapsed: false,
       link: {type: 'doc', id: 'overview/introduction'},
-      items: ['overview/architecture', 'overview/quickstart', 'overview/offline-and-idempotency', 'overview/receiving-flow', 'overview/station-flow'],
+      items: ['overview/architecture', 'overview/quickstart', 'overview/offline-and-idempotency', 'overview/receiving-flow', 'overview/yard-flow', 'overview/station-flow'],
     },
     {
       type: 'category',

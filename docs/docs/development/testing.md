@@ -19,12 +19,12 @@ browser flows are not part of CI.
 | Unit (pure logic, no React) | vitest, jsdom | `src/lib/*.test.ts`, `src/lib/gs1/gs1.test.ts`, `src/lib/barcode/barcode.test.ts`, `src/api/problemMessages.test.ts`, `src/features/task/confirmPlan.test.ts`, `src/pwa/register.test.ts` | yes (`test`) |
 | Service worker | vitest, evaluating `public/sw.js` in a `node:vm` sandbox with a fake worker scope and Cache API | `src/pwa/sw.test.ts` | yes (`test`) |
 | Component / screen | vitest + Testing Library + user-event | `src/components/ScanInput.test.tsx`, `src/features/station/StationScreen.test.tsx`, `src/features/task/TaskScreen.test.tsx`, `src/features/task/PickScan.test.tsx`, `src/features/receiving/ReceivingScreen.test.tsx` | yes (`test`) |
-| Browser flow | Playwright (Chromium) against `npm run dev` and the stub API | `scripts/e2e-station-flow.mjs`, `scripts/e2e-receiving-flow.mjs` | no, run by hand |
+| Browser flow | Playwright (Chromium) against `npm run dev` and the stub API | `scripts/e2e-station-flow.mjs`, `scripts/e2e-receiving-flow.mjs`, `scripts/e2e-yard-flow.mjs` | no, run by hand |
 | Static checks | oxlint, `tsc -b --noEmit` (strict, `noUncheckedIndexedAccess`) | whole repo | yes (`lint`, `typecheck`) |
 | Production build | `tsc -b && vite build` plus the precache stamp | whole repo | yes (`build`) |
 | Docs build | Docusaurus: typecheck and build, which fails on broken links and MDX errors | `docs/` | yes (`docs`) |
 
-Size today: 13 test files with 169 `it(...)`/`test(...)` calls (counted by
+Size today: 23 test files with 258 `it(...)`/`test(...)` calls (counted by
 pattern, so `it.each` rows are counted once):
 
 | File | Cases |
@@ -32,16 +32,26 @@ pattern, so `it.each` rows are counted once):
 | `src/lib/gs1/gs1.test.ts` | 34 |
 | `src/lib/lib.test.ts` | 21 |
 | `src/lib/barcode/barcode.test.ts` | 20 |
-| `src/features/receiving/ReceivingScreen.test.tsx` | 16 |
+| `src/features/receiving/ReceivingScreen.test.tsx` | 18 |
+| `src/features/yard/GateScreen.test.tsx` | 16 |
+| `src/features/yard/HostlerScreen.test.tsx` | 16 |
 | `src/features/task/TaskScreen.test.tsx` | 15 |
-| `src/features/task/PickScan.test.tsx` | 13 |
+| `src/features/yard/DockScreen.test.tsx` | 13 |
+| `src/test/stubApi.test.ts` | 11 |
 | `src/components/ScanInput.test.tsx` | 10 |
+| `src/features/task/PickScan.test.tsx` | 10 |
+| `src/api/yardManagement.test.ts` | 9 |
 | `src/features/station/StationScreen.test.tsx` | 9 |
-| `src/pwa/sw.test.ts` | 9 |
 | `src/lib/scan.test.ts` | 8 |
-| `src/features/task/confirmPlan.test.ts` | 6 |
-| `src/api/problemMessages.test.ts` | 4 |
+| `src/pwa/sw.test.ts` | 8 |
+| `src/features/yard/checkInRules.test.ts` | 7 |
+| `src/features/yard/yardScan.test.ts` | 7 |
+| `src/lib/outboxRetry.test.ts` | 6 |
+| `src/features/task/confirmPlan.test.ts` | 5 |
+| `src/lib/outboxMigration.test.ts` | 5 |
 | `src/pwa/register.test.ts` | 4 |
+| `src/api/problemMessages.test.ts` | 3 |
+| `src/components/StuckOutboxBanner.test.tsx` | 3 |
 
 The `vitest.config.ts` merges `vite.config.ts` and sets `environment: "jsdom"`,
 `globals: true`, `css: false`, `setupFiles: ["./src/test/setup.ts"]` and
@@ -61,6 +71,8 @@ and clears `localStorage`.
 | Station | `StationScreen.test.tsx`, `TaskScreen.test.tsx` | register, check-in by badge scan, claim, check-out; `no-claimable-task`, `station-not-found`, `station-occupied`, `station-not-occupied` copy; lease countdown and half-life renewal with its own key (fake timers); `task-not-claimed` drops the task; `task-already-completed` is success; completion saved offline and replayed with the same key, also after a reload |
 | Pick and case break | `PickScan.test.tsx`, `confirmPlan.test.ts` | each pick scan posts `{stationId, gtin, count: 1}` with its own key; GS1-128 case label sends only the GTIN-14; `task-not-owner` drops the task; offline and reload replay with the saved key; `case-breaks` screen, `case-break-unavailable` retried; completion plans for PICK, RELOCATE, REPLENISH and "not finished in this release" for PACK, SLAM, REBIN, DISPATCH, ARRIVAL |
 | Receiving | `ReceivingScreen.test.tsx`, `gs1.test.ts`, `barcode.test.ts` | open receipts list; SSCC, case and each scans with their own keys; cases are never multiplied on the device; scans refused before any request; mixed-carton audit; refused scan versus finding; `CartonOverLimit` and `UnlabelledCarton` (label fetched and printed); offline scan replay |
+| Yard | `yardManagement.test.ts`, `yardScan.test.ts`, `checkInRules.test.ts`, `GateScreen.test.tsx`, `HostlerScreen.test.tsx`, `DockScreen.test.tsx` | every yard command: same-origin path, key, documented body, same key on a second tap and across a reload; check-in trailer rules (one with an appointment, one or more without, none for bobtail/pickup); GS1 barcodes refused as yard labels; `REJECTED` visit shown as turned away; check-out ticks, drop vs live vs pickup; claim, deviation needs a reason, `location-occupied`, `not-lease-holder`, reload adopts/drops the held move, lease run-out; door-work steps and load state; visiting-driver move completed with no `hostlerRef`; lists follow `nextCursor` |
+| Stub API | `src/test/stubApi.test.ts` | spawns `scripts/stub-api.mjs` and drives every yard endpoint over HTTP: shapes against the OpenAPI's required properties, problem slugs, idempotent replay, paging, lease sweep |
 
 ## Test approach
 
@@ -87,7 +99,7 @@ and clears `localStorage`.
 | `npm run test:watch` | `vitest` in watch mode |
 | `make build` / `npm run build` | `tsc -b && vite build` and the precache stamp |
 | `make docs` | in `docs/`: `npm ci`, `npm run typecheck`, `npm run build` |
-| `make e2e` | `npm run e2e:station` then `npm run e2e:receiving` |
+| `make e2e` | `npm run e2e:station`, `npm run e2e:receiving`, then `npm run e2e:yard` |
 | `make stub-api` / `npm run stub-api` | the in-memory API on `:8787` |
 | `make image` | `docker build --build-context uikit=../warehouse-ui-kit ...` |
 
@@ -106,6 +118,7 @@ STUB_LEASE_MS=20000 npm run stub-api &                      # :8787
 FLOOR_API_TARGET=http://localhost:8787 npm run dev &        # :5174
 npm run e2e:station                                         # headless Chromium
 npm run e2e:receiving                                       # carton, over-limit, unlabelled, lost answer
+npm run e2e:yard                                            # gate check-in (lost answer, same key), dock door work, check-out, hostler with a reason, reject
 E2E_MODE=real npm run e2e:station                           # against Kong (needs the cluster); never completes real work
 ```
 
