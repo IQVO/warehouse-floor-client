@@ -79,3 +79,23 @@ Source of truth: `apis/openapi.yaml` in IQVO/inbound-receiving (`origin/develop`
 Errors are `application/problem+json`, `type` = `https://errors.inbound-receiving.warehouse-systems.dev/<slug>`; the client keys on `<slug>` and never shows `detail`. Copy for the slugs a dock operator can meet is in `src/api/receivingMessages.ts` (`receipt-not-found`, `invalid-receipt-id`, `receipt-closed`, `scan-kind-mismatch`, `invalid-sscc`, `invalid-gtin`, `unsupported-gtin`, `unsupported-pack-level`, `invalid-scan(-kind)`, `invalid-cases`, `invalid-quantity`, `invalid-counted-contents`, `counted-contents-not-mixed`, `counted-sku-unknown`, `carton-not-found`, `version-mismatch`, `concurrent-modification`, `dependency-unavailable`, `malformed-request`); idempotency, 5xx and gateway answers fall back to the shared table above. `429/502/503/504` are retried, not shown.
 
 Idempotency: inbound-receiving **does** de-duplicate `POST /scans` by `Idempotency-Key` (per its OpenAPI); see [Receiving flow](/docs/overview/receiving-flow#commands-keys-and-retries). Spec observation: its example SSCC has an invalid check digit.
+
+## API contract (yard-management)
+
+Source of truth: `apis/openapi.yaml` in IQVO/yard-management (its `servers` list Kong at `/api/yard-management`). All paths are under `/api/yard-management`. Flow, trailer rules, keys and the full slug list: [Yard flow](/docs/overview/yard-flow).
+
+| Action | Request | Success | Notes |
+|---|---|---|---|
+| Check in a visit | `POST /visits` `CheckInVisitRequest` | `201` `CheckIn {visit, trailers[], moves[]}` | `Idempotency-Key` required. A seal mismatch under policy REJECT answers `201` with a `REJECTED` visit and no trailers/moves |
+| Reject at the gate | `POST /visit-rejections` `{siteId, carrier, carrierScac?, tractorPlate, appointmentId?, reason}` | `201` `Visit` | `reason` is one of `APPOINTMENT_REQUIRED`, `UNKNOWN_APPOINTMENT`, `SEAL_MISMATCH`, `TRAILER_ALREADY_ON_SITE`, `SITE_REQUEST` |
+| Check out | `POST /visits/{visitId}/check-outs` `{trailersOut:[{trailerId}]}` | `200` `Visit` | `409 trailer-not-released`, `409 seal-required`, `409 illegal-transition` |
+| List visits | `GET /visits?siteId&state&tractorPlate&limit=500&cursor` | `200` `{items, nextCursor?}` | followed to the end, up to 10 pages |
+| List trailers | `GET /trailers?siteId&state&unitNumber&locationCode&limit=500&cursor` | `200` `{items, nextCursor?}` | default: not `DEPARTED` |
+| Get a trailer | `GET /trailers/{trailerId}` | `200` `Trailer` | shows the unit number of a claimed move |
+| List moves | `GET /moves?siteId&state&trailerId&limit=500&cursor` | `200` `{items, nextCursor?}` | no `hostlerRef` filter: the client filters |
+| Claim next move | `POST /moves/claims` `{siteId, hostlerRef}` | `201` `Move` (CLAIMED, `leaseExpiresAt`) | `404 no-claimable-move`, `409 hostler-busy` |
+| Complete a move | `POST /moves/{moveId}/completions` `{hostlerRef?, actualLocation?{kind, code}, deviationNote?}` | `200` `Move` | `hostlerRef` for a HOSTLER move only; `422 unexplained-destination`, `409 location-occupied`, `409 not-lease-holder` |
+| Start door work | `POST /trailers/{trailerId}/door-work-starts` (no body) | `200` `Trailer` | `409 trailer-on-hold`, `409 illegal-transition` |
+| Complete door work | `POST /trailers/{trailerId}/door-work-completions` `{loadState?}` | `200` `Trailer` | |
+
+Errors are `application/problem+json`, `type` = `https://errors.yard-management.warehouse-systems.dev/<slug>`; operator copy is in `src/api/yardMessages.ts` and a test checks every slug above has some.

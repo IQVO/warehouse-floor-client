@@ -46,10 +46,10 @@ if the port is taken, Vite exits instead of picking another one.
 
 | Variable | Default | Required | Meaning |
 |---|---|---|---|
-| `STUB_PORT` | `8787` | no | Port of the in-memory stand-in for fulfillment-execution and inbound-receiving |
-| `STUB_LEASE_MS` | `300000` | no | Lease the stub grants on `task-claims`. Use `20000` to see an automatic renewal within seconds |
+| `STUB_PORT` | `8787` | no | Port of the in-memory stand-in for fulfillment-execution, inbound-receiving and yard-management (site `WH1`, `scripts/stub-yard.mjs`) |
+| `STUB_LEASE_MS` | `300000` | no | Lease the stub grants on `task-claims` and on yard `moves/claims`. Use `20000` to see an automatic renewal within seconds |
 
-### Browser flows (`scripts/e2e-station-flow.mjs`, `scripts/e2e-receiving-flow.mjs`)
+### Browser flows (`scripts/e2e-station-flow.mjs`, `scripts/e2e-receiving-flow.mjs`, `scripts/e2e-yard-flow.mjs`)
 
 | Variable | Default | Required | Meaning |
 |---|---|---|---|
@@ -87,6 +87,8 @@ State that survives a reload lives in `localStorage` (via `defaultStore()` in
 |---|---|---|
 | `wfc.outbox.v1` | `src/lib/outbox.ts` | FIFO of commands with no definitive answer: `key` (the Idempotency-Key), `kind`, `method`, same-origin `path`, `body`, `dedupeId`, `meta`, `createdAt`, `attempts`. Entries whose `path` does not start with `/api/` are dropped on load |
 | `wfc.station.v1` | `src/features/station/stationState.ts` | station, occupant id and the held task with its lease deadline (in the local clock) |
+| `wfc.yard.v1` | `src/features/yard/yardPrefs.ts` | site code and hostler id of this device |
+| `wfc.yard.hostler.v1` | `src/features/yard/hostlerState.ts` | the claimed move, its trailer unit and the lease deadline (local clock) |
 | `wfc.probe` | `src/lib/storage.ts` | written and removed once to test that `localStorage` works |
 
 Clearing site data deletes the outbox: commands that were not yet delivered are

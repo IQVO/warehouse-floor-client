@@ -22,12 +22,18 @@
 // and an internal LPN); each GTIN 03041090004827 (SKU-1). A repeated SSCC is a
 // 200 accepted=false DuplicateSscc. Quantities are multiplied HERE, like the server.
 //
+// And for yard-management under /api/yard-management (scripts/stub-yard.mjs: visits,
+// check-outs, rejections, trailers, moves, claims, completions, door work; site WH1,
+// seeded hostler move for SEED-TRL-1; read its header for the places and appointments).
+//
 // Test controls (not part of the real API):
-//   POST /__stub/reset               clear all state, reseed tasks
+//   POST /__stub/reset               clear all state, reseed tasks and the yard
+//   POST /__stub/yard-policy         yard seal policy: {"sealMismatchAction":"REJECT"|"FLAG"}
 //   POST /__stub/tasks               add a task (JSON: a TaskResponse-like object)
 //   POST /__stub/drop-next-response  apply the next command, then cut the connection before answering
 //   GET  /__stub/log                 every command received (method, path, key, body, replayed)
 import { createServer } from "node:http";
+import { createYardStub, YARD } from "./stub-yard.mjs";
 
 const PORT = Number(process.env.STUB_PORT ?? 8787);
 const LEASE_MS = Number(process.env.STUB_LEASE_MS ?? 300_000);
@@ -35,6 +41,7 @@ const BASE = "/api/fulfillment-execution";
 const ERR = "https://errors.fulfillment-execution.warehouse-systems.dev";
 const IR = "/api/inbound-receiving";
 const IR_ERR = "https://errors.inbound-receiving.warehouse-systems.dev";
+const yard = createYardStub({ send: (...a) => send(...a), leaseMs: LEASE_MS });
 const CASE_UNITS = 12;
 const SSCC_CARTONS = {
   "340123450000000017": { kind: "HOMOGENEOUS_CASE", contents: [{ lineNo: 1, sku: "SKU-1", gtin: "03041090004827", qty: 20 }] },
@@ -179,8 +186,9 @@ function handleReceiving(path, method, body, res) {
   return irProblem(res, 422, "scan-kind-mismatch", "Scan kind mismatch", path);
 }
 
-function handle(path, method, body, res) {
+function handle(path, method, body, res, query) {
   const instance = path;
+  if (path.startsWith(`${YARD}/`)) return yard.handle(path, method, body, res, query);
   if (path.startsWith(`${IR}/`)) return handleReceiving(path, method, body, res);
   if (method === "POST" && path === `${BASE}/stations`) {
     if (!body?.stationId || !Array.isArray(body.capabilities) || body.capabilities.length === 0) {
@@ -276,7 +284,8 @@ createServer((req, res) => {
 
     if (path.startsWith("/__stub/")) {
       if (path === "/__stub/log") return send(res, 200, log);
-      if (path === "/__stub/reset") return (seed(), send(res, 204));
+      if (path === "/__stub/reset") return (seed(), yard.reset(), send(res, 204));
+      if (yard.control(path, body, res)) return;
       if (path === "/__stub/drop-next-response") return ((dropNext = true), send(res, 204));
       if (path === "/__stub/tasks") {
         tasks.set(body.id, { status: "PENDING", fragile: false, giftWrap: false, ...body });
@@ -314,8 +323,8 @@ createServer((req, res) => {
         realWriteHead(captured.status, captured.headers);
         return realEnd(captured.payload);
       };
-      return handle(path, req.method, body, res);
+      return handle(path, req.method, body, res, url.searchParams);
     }
-    return handle(path, req.method ?? "GET", body, res);
+    return handle(path, req.method ?? "GET", body, res, url.searchParams);
   });
-}).listen(PORT, () => console.log(`stub fulfillment-execution on http://localhost:${PORT}${BASE} (lease ${LEASE_MS} ms)`));
+}).listen(PORT, () => console.log(`stub fulfillment-execution on http://localhost:${PORT}${BASE} (also inbound-receiving and yard-management; lease ${LEASE_MS} ms)`));

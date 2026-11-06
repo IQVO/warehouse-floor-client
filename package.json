@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "stub-api": "node scripts/stub-api.mjs",
     "e2e:station": "node scripts/e2e-station-flow.mjs",
-    "e2e:receiving": "node scripts/e2e-receiving-flow.mjs"
+    "e2e:receiving": "node scripts/e2e-receiving-flow.mjs",
+    "e2e:yard": "node scripts/e2e-yard-flow.mjs"
   },
   "dependencies": {
     "@warehouse/ui-kit": "file:../warehouse-ui-kit",
