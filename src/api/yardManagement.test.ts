@@ -9,7 +9,7 @@ import { describeYardProblem, YARD_PROBLEM_CODES } from "./yardMessages";
 import { yardManagementApi, yardReads, type YardManagementApi } from "./yardManagement";
 import { problemCode } from "../lib/problem";
 
-function runnerOn(store: MemoryStore, fetchStub: ReturnType<typeof createFetchStub>, prefix: string) {
+function runnerOn(store: MemoryStore, fetchStub: unknown, prefix: string) {
   let n = 0;
   return new CommandRunner({
     outbox: new Outbox(store),

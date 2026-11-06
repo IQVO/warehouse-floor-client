@@ -19,6 +19,7 @@ export function Layout() {
     { id: "task", label: held ? "Task \u2022" : "Task", href: "/task", active: pathname === "/task" },
     { id: "receiving", label: "Receiving", href: "/receiving", active: pathname.startsWith("/receiving") },
     { id: "yard-gate", label: "Gate", href: "/yard/gate", active: pathname === "/yard/gate" },
+    { id: "yard-hostler", label: "Hostler", href: "/yard/hostler", active: pathname === "/yard/hostler" },
   ];
   return (
     <NavigationProvider link={RouterLink}>
