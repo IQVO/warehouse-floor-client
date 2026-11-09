@@ -12,14 +12,14 @@
 #   inside the throwaway build layer. The committed lockfile is never mutated.
 
 # --- ui-kit build stage (sibling dependency) ---
-FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS uikit-build
+FROM node:26-bookworm-slim@sha256:add5c17c14752c54d2f3d519ec46a3815684d41c33f198bcb09fb998f7dcbf68 AS uikit-build
 WORKDIR /uikit
 COPY --from=uikit . .
 RUN --mount=type=cache,target=/root/.npm \
     rm -rf node_modules package-lock.json && npm install --no-save && npm run build
 
 # --- app build stage ---
-FROM node:26-bookworm-slim@sha256:bc0a2afd3b74ce12222fc8bab99271e66257f021078f5f4a5d687a77d280c1d9 AS build
+FROM node:26-bookworm-slim@sha256:add5c17c14752c54d2f3d519ec46a3815684d41c33f198bcb09fb998f7dcbf68 AS build
 WORKDIR /workspace/warehouse-ui-kit
 COPY --from=uikit-build /uikit/package.json ./package.json
 COPY --from=uikit-build /uikit/dist ./dist
