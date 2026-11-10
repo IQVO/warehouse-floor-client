@@ -45,7 +45,7 @@ Browsers only run service workers on `https` or `http://localhost`. On plain `ht
 
 ## Rules this repo lives by
 
-These are the conventions (there is no agent-guide file yet; this is the source of truth).
+These are the conventions; `CLAUDE.md` carries the short form for coding agents and `HARNESS.md` lists the sensors.
 
 ### 1. Kong only, same origin
 
