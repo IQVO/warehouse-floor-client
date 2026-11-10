@@ -1,7 +1,7 @@
 # Makefile for warehouse-floor-client: thin wrappers over npm so `make check` works in every fleet repo.
-.PHONY: help install lint typecheck test build docs check check-all check-fast dev stub-api e2e image
+.PHONY: help install lint typecheck test build docs check check-all check-fast guide-lint harness-test dev stub-api e2e image
 help:
-	@echo "targets: install lint typecheck test build docs check check-all check-fast dev stub-api e2e image"
+	@echo "targets: install lint typecheck test build docs check check-all check-fast guide-lint harness-test dev stub-api e2e image"
 install:
 	npm ci
 lint:
@@ -17,8 +17,17 @@ docs:
 	cd docs && npm ci && npm run typecheck && npm run build
 check: lint typecheck test build docs
 check-all: check
-# Fast local gate (the same one an agent Stop hook would run).
+# Fast local gate: the agent Stop hook (scripts/harness/hook.py stop) runs it.
 check-fast: lint typecheck
+
+# --- agent harness (harness-template v4) -----------------------------------
+guide-lint: ## lint agent guides: skills load, references resolve, context budget
+	python3 scripts/harness/guide_lint.py
+
+harness-test: ## unit-test the agent hooks (pre/post/stop) and the red-issue helper
+	python3 scripts/harness/test_hook.py
+	python3 scripts/harness/test_red_issue.py
+	python3 scripts/harness/test_repo_lint.py
 
 # Dev server (:5174) proxying /api to Kong (http://localhost:8000). Override with FLOOR_API_TARGET=...
 dev:
