@@ -54,10 +54,33 @@ yard-management enforces `Idempotency-Key` on every creating `POST` (per its Ope
 
 ## Errors
 
-Problem `type` = `https://errors.yard-management.warehouse-systems.dev/<slug>`; the client keys on `<slug>` (`src/api/yardMessages.ts`) and never shows `detail`. Covered: `appointment-required`, `unknown-appointment`, `visit-already-open`, `trailer-already-on-site`, `door-closed`, `door-flow-mismatch`, `no-free-spot`, `invalid-carrier`, `validation`, `illegal-transition`, `trailer-not-released`, `seal-required`, `trailer-on-hold`, `trailer-has-open-move`, `hostler-busy`, `no-claimable-move`, `not-lease-holder`, `unexplained-destination`, `location-occupied`, `destination-reserved`, `unknown-location`, `trailer-not-found`, `visit-not-found`, `move-not-found`, `malformed-request-body`, `precondition-failed`, `dependency-unavailable`. Idempotency, 5xx and gateway answers fall back to the shared table. `429/502/503/504` are retried, not shown.
+Problem `type` = `https://errors.yard-management.warehouse-systems.dev/<slug>`; the client keys on `<slug>` (`src/api/yardMessages.ts`) and never shows `detail`. Covered: `appointment-required`, `unknown-appointment`, `visit-already-open`, `trailer-already-on-site`, `door-closed`, `door-flow-mismatch`, `no-free-spot`, `invalid-carrier`, `validation`, `illegal-transition`, `trailer-not-released`, `seal-required`, `trailer-on-hold`, `trailer-has-open-move`, `hostler-busy`, `no-claimable-move`, `not-lease-holder`, `unexplained-destination`, `location-occupied`, `destination-reserved`, `unknown-location`, `trailer-not-found`, `visit-not-found`, `move-not-found`, `malformed-request-body`, `precondition-failed`, `dependency-unavailable`, and the eight of the table below. Idempotency, 5xx and gateway answers fall back to the shared table. `429/502/503/504` are retried, not shown.
+
+The slugs of yard-management ADR 0012 to 0016. None of them is fixed by sending the same thing again, so none says "try again" on its own:
+
+| Slug | Status | Met on | What the operator reads / what to do |
+|---|---|---|---|
+| `carrier-suspended` | 409 | check-in | This carrier is suspended, so the truck is turned away. The turn-away is already recorded. / The truck does not enter. Tell the driver. Nothing more to enter: do not check it in again or use Reject. |
+| `seal-class-too-low` | 409 | check-in | This site only takes seals of a set strength, and this trailer's seal is weaker or its strength is not on record. / Tell your lead. The truck waits at the gate; if the seal cannot be accepted, turn it away (Reject at the gate). |
+| `invalid-unit-number` | 422 | check-in | That is not a valid container number: 4 capital letters and 7 digits, with no spaces or dashes. / Check it against the number on the container and enter it again. If the unit is not a container, change its kind. |
+| `placement-rule-violated` | 409 | move completion (hostler, dock); check-in | This trailer carries dangerous goods or a load that needs cooling, and it may only stand on a spot set aside for that. / Take it to a spot set aside for that load and scan that one. If there is none, ask your lead. |
+| `trailer-not-secured` | 409 | door work start | This site starts door work only on a trailer that is recorded as secured (restraint or wheel chocks). / Secure the trailer and tell your lead, so it is recorded. Then start door work again. |
+| `trailer-still-secured` | 409 | check-out; claim | A trailer is still secured at its dock door (restraint or wheel chocks), so it cannot leave. / It has to be released at the dock first, and the release recorded. Tell your lead, then try again. |
+| `inspection-required` | 409 | door work start, check-out, move completion at a door | This site wants a passed inspection of the trailer before this step, and none is on record. / Tell your lead. Try again once the trailer has been inspected and passed. |
+| `inspection-failed` | 409 | the same three | The trailer's latest inspection failed, so this step is blocked. / Tell your lead. The trailer has to be inspected again and pass first. |
+
+`carrier-suspended` is the one refusal that is not "nothing happened": under the site rule `REJECT` the service records the `REJECTED` visit (reason `CARRIER_SUSPENDED`) and then answers the 409, so a second check-in or a manual reject would put a second turn-away on record. The form keeps what was typed, as for every refusal.
+
+`seal-class-too-low`, the two securing slugs and the two inspection slugs send the operator to the lead because this client has no screen for the fix: it does not send a seal class (`sealClass`), it does not record or release a securing (`POST /trailers/{id}/securings`, `/securing-releases`), and it does not open or complete inspections.
+
+Left on the shared fallback (the service's title, then "Try again. If it keeps happening, call your lead."), on purpose:
+
+- `invalid-seal-class`, `invalid-hazmat-class`, `invalid-un-number`: the OpenAPI names them on `POST /visits`, for `sealClass`, `hazmatClass` and `unNumber`. The check-in form sends none of the three, so no operator can meet them. A screen that starts sending one of the fields adds the copy with it.
+- `concurrent-modification` (409, two writes at the same moment): the service answers it on any command, but its OpenAPI does not name it, so it is not in the list the test checks. For this one "try again" is the right advice.
 
 ## Spec observations
 
-- Not in the OpenAPI as written: `visit-not-found` / `move-not-found` (only `trailer-not-found` is exemplified; the other two are the same pattern) and the `validation` slug (named in the check-in description).
+- The OpenAPI gives every route the same shared `409` / `422` responses, so which slug a route answers is read from the operation descriptions and from yard-management ADR 0012 to 0016. `validation` has no example (it is named in the check-in description). `concurrent-modification` is in the service's error catalogue and not in the OpenAPI at all.
+- `inspection-required` / `inspection-failed` on a move completed at a door comes from the service code (the arrival at a door is judged); the OpenAPI and ADR 0015 name the move request, the door work start and the check-out.
 - `If-Match` is not sent: no screen edits a copy it read earlier.
 - A pickup that names an appointment cannot satisfy both "a visit that names an appointment brings exactly one trailer" and "a pickup brings none"; the client sends what the form allows and shows the service's answer.

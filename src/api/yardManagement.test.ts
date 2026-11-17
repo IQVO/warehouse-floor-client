@@ -148,13 +148,24 @@ describe("yardReads", () => {
 });
 
 describe("yard problem copy", () => {
-  /** Every slug the OpenAPI names for the calls these screens make. */
+  /**
+   * Every slug yard-management's OpenAPI (origin/develop) names for the calls these screens make. A slug the
+   * service adds to one of those calls goes here first: this list failing is how a missing copy is caught.
+   * Left out on purpose: `invalid-seal-class`, `invalid-hazmat-class` and `invalid-un-number`. POST /visits
+   * answers them only for `sealClass`, `hazmatClass` and `unNumber`, which this client never sends.
+   */
   const SLUGS = [
     "appointment-required", "unknown-appointment", "visit-already-open", "trailer-already-on-site", "door-closed", "door-flow-mismatch", "no-free-spot",
     "invalid-carrier", "validation", "illegal-transition", "trailer-not-released", "seal-required", "trailer-on-hold", "trailer-has-open-move", "hostler-busy",
     "no-claimable-move", "not-lease-holder", "unexplained-destination", "location-occupied", "destination-reserved", "unknown-location", "trailer-not-found",
-    "malformed-request-body", "precondition-failed", "dependency-unavailable",
+    "visit-not-found", "move-not-found", "malformed-request-body", "precondition-failed", "dependency-unavailable",
+    // yard-management ADR 0012 to 0016: identifiers at the gate, dock safety, placement, inspections, suspended carriers.
+    "carrier-suspended", "seal-class-too-low", "invalid-unit-number", "placement-rule-violated", "trailer-still-secured", "trailer-not-secured",
+    "inspection-required", "inspection-failed",
   ];
+  const yardSlug = (slug: string, status = 409) => ({ type: `https://errors.yard-management.warehouse-systems.dev/${slug}`, title: "Service title", status, detail: "usecases: raw" });
+  /** What a slug with no copy gets: the service title plus "Try again. If it keeps happening, call your lead." */
+  const GENERIC_TODO = describeYardProblem(yardSlug("a-slug-this-build-does-not-know")).todo;
 
   it("has operator wording for each, with no engineer text", () => {
     for (const slug of SLUGS) {
@@ -164,6 +175,37 @@ describe("yard problem copy", () => {
       expect(m.todo.length).toBeGreaterThan(5);
       expect(`${m.what} ${m.todo}`).not.toMatch(/usecases|\{|409|422|slug/);
     }
+  });
+
+  it.each<[string, number, RegExp, RegExp]>([
+    ["carrier-suspended", 409, /turned away/i, /does not enter/i],
+    ["seal-class-too-low", 409, /seal/i, /your lead/i],
+    ["invalid-unit-number", 422, /container number/i, /enter it again/i],
+    ["placement-rule-violated", 409, /dangerous goods/i, /spot set aside/i],
+    ["trailer-still-secured", 409, /still secured/i, /released/i],
+    ["trailer-not-secured", 409, /secured/i, /secure the trailer/i],
+    ["inspection-required", 409, /inspection/i, /your lead/i],
+    ["inspection-failed", 409, /inspection failed/i, /your lead/i],
+  ])("%s (%i) says what happened and what to do, not the generic fallback", (slug, status, what, todo) => {
+    const m = describeYardProblem(yardSlug(slug, status));
+    expect(m.what).toMatch(what);
+    expect(m.todo).toMatch(todo);
+    expect(m.what).not.toContain("Service title");
+    expect(m.todo).not.toBe(GENERIC_TODO);
+    expect(`${m.what} ${m.todo}`).not.toMatch(/usecases|\{|409|422|slug|policy|hazmat|\bISO\b/i);
+  });
+
+  it("carrier-suspended: the truck is turned away, the turn-away is on record, and nothing asks for a retry", () => {
+    const m = describeYardProblem(yardSlug("carrier-suspended"));
+    expect(m.what).toMatch(/turned away/i);
+    expect(m.what).toMatch(/recorded/i);
+    expect(m.todo).toMatch(/does not enter/i);
+    expect(`${m.what} ${m.todo}`).not.toMatch(/try again|retry|in a moment/i);
+  });
+
+  it("keeps the generic fallback for a slug this build does not know", () => {
+    expect(GENERIC_TODO).toBe("Try again. If it keeps happening, call your lead.");
+    expect(describeYardProblem(yardSlug("a-slug-this-build-does-not-know")).what).toBe("Service title.");
   });
 
   it("falls back to the shared table for idempotency and gateway errors", () => {
