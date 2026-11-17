@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCheckIn, buildReject, bringsTrailers, emptyCheckIn, emptyReject, emptyTrailer, type CheckInDraft } from "./checkInRules";
+import { buildCheckIn, buildReject, bringsTrailers, emptyCheckIn, emptyReject, emptyTrailer, type CheckInDraft, type RejectDraft } from "./checkInRules";
 
 const trailerOk = { ...emptyTrailer("TRL-1"), kind: "DRY_VAN" as const, loadState: "LOADED" as const };
 const base: CheckInDraft = { ...emptyCheckIn, carrier: "Acme Freight", tractorPlate: "abc1234", purpose: "DROP", trailers: [trailerOk] };
@@ -81,5 +81,10 @@ describe("buildReject", () => {
     const r = buildReject("WH1", { ...d, reason: "" });
     expect(r.ok).toBe(false);
     expect(buildReject("", d).ok).toBe(false);
+  });
+
+  it("never sends a reason RejectVisitRequest does not accept (CARRIER_SUSPENDED is set by the service)", () => {
+    const d = { ...emptyReject, carrier: "Acme", tractorPlate: "zz9", reason: "CARRIER_SUSPENDED" as string as RejectDraft["reason"] };
+    expect(buildReject("WH1", d)).toEqual({ ok: false, message: "Choose why the truck is turned away." });
   });
 });

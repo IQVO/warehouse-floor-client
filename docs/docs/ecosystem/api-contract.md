@@ -87,7 +87,7 @@ Source of truth: `apis/openapi.yaml` in IQVO/yard-management (its `servers` list
 | Action | Request | Success | Notes |
 |---|---|---|---|
 | Check in a visit | `POST /visits` `CheckInVisitRequest` | `201` `CheckIn {visit, trailers[], moves[]}` | `Idempotency-Key` required. A seal mismatch under policy REJECT answers `201` with a `REJECTED` visit and no trailers/moves |
-| Reject at the gate | `POST /visit-rejections` `{siteId, carrier, carrierScac?, tractorPlate, appointmentId?, reason}` | `201` `Visit` | `reason` is one of `APPOINTMENT_REQUIRED`, `UNKNOWN_APPOINTMENT`, `SEAL_MISMATCH`, `TRAILER_ALREADY_ON_SITE`, `SITE_REQUEST` |
+| Reject at the gate | `POST /visit-rejections` `{siteId, carrier, carrierScac?, tractorPlate, appointmentId?, reason}` | `201` `Visit` | `reason` is one of `APPOINTMENT_REQUIRED`, `UNKNOWN_APPOINTMENT`, `SEAL_MISMATCH`, `TRAILER_ALREADY_ON_SITE`, `SITE_REQUEST`. `Visit.rejectionReason` can also read `CARRIER_SUSPENDED` (set by the service, never sent); the client types that field as an open string and shows an unknown value as "reason `<CODE>`" |
 | Check out | `POST /visits/{visitId}/check-outs` `{trailersOut:[{trailerId}]}` | `200` `Visit` | `409 trailer-not-released`, `409 seal-required`, `409 illegal-transition` |
 | List visits | `GET /visits?siteId&state&tractorPlate&limit=500&cursor` | `200` `{items, nextCursor?}` | followed to the end, up to 10 pages |
 | List trailers | `GET /trailers?siteId&state&unitNumber&locationCode&limit=500&cursor` | `200` `{items, nextCursor?}` | default: not `DEPARTED` |

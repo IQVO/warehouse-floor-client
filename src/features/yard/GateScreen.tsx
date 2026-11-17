@@ -8,7 +8,7 @@ import type { Outcome } from "../../lib/commands";
 import { CheckInForm } from "./CheckInForm";
 import { CheckOutPanel } from "./CheckOutPanel";
 import { RejectForm } from "./RejectForm";
-import { REJECTION_TEXT, placeText, reasonText } from "./yardFormat";
+import { placeText, reasonText, rejectionText } from "./yardFormat";
 import { useYardPrefs, useYardSettled } from "./yardPrefs";
 import { YardNotice, YardWho } from "./yardUi";
 
@@ -42,7 +42,7 @@ export function GateScreen() {
       setAdmitted(result);
       setNotice(
         result.visit.state === "REJECTED"
-          ? { tone: "warning", what: `Turned away: ${REJECTION_TEXT[result.visit.rejectionReason ?? "SITE_REQUEST"]}.`, todo: "The truck does not enter. Tell the driver." }
+          ? { tone: "warning", what: `Turned away: ${rejectionText(result.visit.rejectionReason)}.`, todo: "The truck does not enter. Tell the driver." }
           : { tone: "success", what: `${result.visit.tractorPlate} is checked in.`, todo: "Tell the driver where to take each trailer (below)." },
       );
     } else if (kind === "yard-reject") {

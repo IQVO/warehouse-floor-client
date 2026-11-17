@@ -1,4 +1,4 @@
-import type { Move, Purpose, RejectionReason, Trailer, YardLocation } from "../../api/yardManagement";
+import type { KnownRejectionReason, Move, Purpose, Trailer, YardLocation } from "../../api/yardManagement";
 
 export const placeText = (l: YardLocation | null | undefined): string => (l ? `${l.kind === "DOOR" ? "Door" : "Spot"} ${l.code}` : "—");
 
@@ -28,13 +28,25 @@ export function dueText(move: Move): string {
   return Number.isNaN(t) ? "—" : new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export const REJECTION_TEXT: Record<RejectionReason, string> = {
+export const REJECTION_TEXT: Record<KnownRejectionReason, string> = {
   APPOINTMENT_REQUIRED: "No appointment, and this site needs one",
   UNKNOWN_APPOINTMENT: "The appointment is not known",
   SEAL_MISMATCH: "The seal does not match",
   TRAILER_ALREADY_ON_SITE: "That trailer is already on site",
   SITE_REQUEST: "The site asked for it",
+  CARRIER_SUSPENDED: "The carrier is suspended",
 };
+
+/**
+ * Words for a visit's rejection reason as the service sent it. A reason this build does not know is named by
+ * its code ("reason <CODE>"), never `undefined`; a REJECTED visit with no reason keeps the site-request wording.
+ */
+export function rejectionText(reason: string | null | undefined): string {
+  const code = reason?.trim() ?? "";
+  if (code === "") return REJECTION_TEXT.SITE_REQUEST;
+  // Own keys only: "constructor" or "toString" is not a reason.
+  return Object.hasOwn(REJECTION_TEXT, code) ? REJECTION_TEXT[code as KnownRejectionReason] : `reason ${code}`;
+}
 
 /**
  * The service's rule, shown as a hint only (it decides): a trailer is released
