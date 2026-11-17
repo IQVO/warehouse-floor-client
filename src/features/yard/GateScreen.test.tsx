@@ -142,6 +142,25 @@ describe("gate clerk: check in", () => {
     expect(screen.queryByText("Where the driver goes")).not.toBeInTheDocument();
   });
 
+  // The Visit schema lets `rejectionReason` carry CARRIER_SUSPENDED (yard-management ADR 0016) and, with a
+  // newer service, a value this build predates. Either way the clerk reads words, never `undefined`.
+  it.each([
+    ["CARRIER_SUSPENDED", "Turned away: The carrier is suspended."],
+    ["DRIVER_NOT_ON_LIST", "Turned away: reason DRIVER_NOT_ON_LIST."],
+  ])("a REJECTED visit with reason %s is shown as turned away, in words", async (rejectionReason, text) => {
+    const h = atGate();
+    const rejected = checkIn({ visit: visit({ state: "REJECTED", rejectionReason }), trailers: [], moves: [] });
+    h.fetchStub.on(`POST ${YB}/visits`, jsonResponse(201, rejected));
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await fillCheckIn(user, { appointment: "appt-1" });
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(text);
+    expect(alert.textContent).not.toMatch(/undefined/);
+    expect(screen.queryByText("Where the driver goes")).not.toBeInTheDocument();
+  });
+
   it("the site code is typed once and remembered on the device", async () => {
     const h = createHarness();
     const user = userEvent.setup({ delay: null });
@@ -190,6 +209,14 @@ describe("gate clerk: reject at the gate", () => {
     const [call] = h.fetchStub.callsTo(`POST ${YB}/visit-rejections`);
     expect(call?.body).toEqual({ siteId: "WH1", carrier: "Acme", tractorPlate: "ABC1234", reason: "APPOINTMENT_REQUIRED" });
     expect(call?.headers["idempotency-key"]).toBeTruthy();
+  });
+
+  it("offers only the reasons POST /visit-rejections accepts: CARRIER_SUSPENDED is the service's to set", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderApp(atGate(), "/yard/gate");
+    await user.click(screen.getByRole("button", { name: "Reject" }));
+    const offered = within(screen.getByLabelText("Reason")).getAllByRole("option").map((o) => (o as HTMLOptionElement).value);
+    expect(offered).toEqual(["", "APPOINTMENT_REQUIRED", "UNKNOWN_APPOINTMENT", "SEAL_MISMATCH", "TRAILER_ALREADY_ON_SITE", "SITE_REQUEST"]);
   });
 
   it("problem path: a refusal the service cannot record is explained", async () => {

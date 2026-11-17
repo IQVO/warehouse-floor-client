@@ -18,8 +18,21 @@ export const TRAILER_KINDS = ["DRY_VAN", "REEFER", "FLATBED", "CONTAINER"] as co
 export type TrailerKind = (typeof TRAILER_KINDS)[number];
 export const LOAD_STATES = ["EMPTY", "LOADED", "PARTIAL"] as const;
 export type LoadState = (typeof LOAD_STATES)[number];
+/** The reasons a gate clerk may send: `RejectVisitRequest.reason` of POST /visit-rejections. */
 export const REJECTION_REASONS = ["APPOINTMENT_REQUIRED", "UNKNOWN_APPOINTMENT", "SEAL_MISMATCH", "TRAILER_ALREADY_ON_SITE", "SITE_REQUEST"] as const;
 export type RejectionReason = (typeof REJECTION_REASONS)[number];
+/**
+ * Reasons only the service sets, so they are read on a visit and never sent: CARRIER_SUSPENDED is recorded by
+ * the gate when the carrier is suspended and the site policy says REJECT (yard-management ADR 0016).
+ */
+export const SERVICE_REJECTION_REASONS = ["CARRIER_SUSPENDED"] as const;
+/** Every reason this build has operator wording for. */
+export type KnownRejectionReason = RejectionReason | (typeof SERVICE_REJECTION_REASONS)[number];
+/**
+ * `Visit.rejectionReason` as it arrives: the service may add a reason before this client learns it, so any
+ * string is possible at the network boundary. Read it through `rejectionText`, never by indexing a table.
+ */
+export type VisitRejectionReason = KnownRejectionReason | (string & {});
 
 export interface YardLocation {
   kind: "SPOT" | "DOOR";
@@ -36,7 +49,7 @@ export interface Visit {
   purpose: Purpose;
   appointmentId?: string | null;
   state: "CHECKED_IN" | "CHECKED_OUT" | "REJECTED";
-  rejectionReason?: RejectionReason | null;
+  rejectionReason?: VisitRejectionReason | null;
   trailersIn: string[];
   trailersOut: string[];
   arrivedAt: string;
