@@ -130,6 +130,23 @@ describe("gate clerk: check in", () => {
     expect(screen.getByLabelText("Tractor plate")).toHaveValue("abc1234");
   });
 
+  // yard-management ADR 0016: under the REJECT policy the service records the REJECTED visit and THEN answers
+  // 409 `carrier-suspended`. Checking in again would record a second turn-away, so nothing may suggest it.
+  it("problem path: a suspended carrier is shown as turned away and on record, with no advice to try again", async () => {
+    const h = atGate();
+    h.fetchStub.on(`POST ${YB}/visits`, yardProblem(409, "carrier-suspended", "The carrier is suspended", "the carrier is suspended: SCAC ACME is suspended; visit vis-0a1b is recorded as REJECTED"));
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await fillCheckIn(user);
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("This carrier is suspended, so the truck is turned away. The turn-away is already recorded.");
+    expect(alert).toHaveTextContent("The truck does not enter. Tell the driver.");
+    expect(alert.textContent).not.toMatch(/try again|keeps happening|vis-0a1b|SCAC|usecases|\{|409/i);
+    expect(screen.queryByText("Where the driver goes")).not.toBeInTheDocument();
+    expect(h.fetchStub.callsTo(`POST ${YB}/visits`)).toHaveLength(1);
+  });
+
   it("a seal mismatch under the REJECT policy comes back as a REJECTED visit and is shown as turned away", async () => {
     const h = atGate();
     const rejected = checkIn({ visit: visit({ state: "REJECTED", rejectionReason: "SEAL_MISMATCH" }), trailers: [], moves: [] });
