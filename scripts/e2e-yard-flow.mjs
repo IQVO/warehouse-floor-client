@@ -11,7 +11,10 @@
 // and replayed with the SAME key), its driver's arrival is confirmed at the door, door
 // work runs, the truck is checked out; a walk-in drops a trailer at the holding spot;
 // a hostler claims the seeded relocation and parks it somewhere else with a reason;
-// a truck is turned away.
+// a truck is turned away. Then the two gate rules of a stricter site (stub yard policy):
+// a minimum seal strength (refused with none stated, admitted once the clerk states it)
+// and a suspended carrier (turned away and on record once, online and after an offline
+// replay; the truck's form is gone, so a stray tap or Enter cannot record it twice).
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
 
@@ -40,7 +43,9 @@ page.on("request", (r) => {
 });
 const shot = (name) => page.screenshot({ path: `${SHOTS}/yard-${name}.png` });
 const stubLog = async () => (await fetch(`${STUB}/__stub/log`)).json();
-const stub = (path) => fetch(`${STUB}/__stub/${path}`, { method: "POST" });
+const stub = (path, body) => fetch(`${STUB}/__stub/${path}`, { method: "POST", ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
+const visitsOf = async (plate, state) => (await (await fetch(`${STUB}${API}/visits?siteId=WH1&tractorPlate=${plate}${state ? `&state=${state}` : ""}`)).json()).items;
+const checkInsOf = async (plate) => (await stubLog()).filter((e) => e.path === `${API}/visits` && e.body?.tractorPlate === plate);
 const settle = () => page.waitForTimeout(450); // past the scanner de-bounce
 /** Keyboard-wedge emulation on a scan field: focus it, type fast, Enter. */
 async function scan(label, code) {
@@ -156,6 +161,81 @@ try {
   await page.getByRole("button", { name: "Reject at the gate" }).click();
   await page.getByText(/NOPE1 was turned away/).waitFor();
   expect(true, "truck turned away: refusal recorded");
+
+  // ---- gate: a site with a minimum seal strength (yard-management ADR 0012) ----
+  await stub("yard-policy", { minimumSealClass: "S", suspendedCarrierAction: "REJECT" });
+  await page.getByRole("button", { name: "Check in", exact: true }).click();
+  await page.getByLabel("Carrier", { exact: true }).fill("Sealed Lines");
+  await page.getByLabel("Tractor plate").fill("seal55");
+  await page.getByLabel("Purpose").selectOption("DROP");
+  await scan("Scan the trailer unit number", "E2E-SEAL-1");
+  await page.getByLabel("Kind of trailer 1").selectOption("DRY_VAN");
+  await page.getByLabel("Load state 1").selectOption("LOADED");
+  expect((await page.getByLabel("Seal strength 1 (optional)").count()) === 0, "seal strength is not asked for while no seal number is typed");
+  await page.getByLabel("Seal number 1 (optional)").fill("SL-900");
+  await page.getByRole("button", { name: "Check in this truck" }).click();
+  await page.getByText(/this trailer's seal is weaker or its strength was not stated/).waitFor();
+  expect((await page.getByLabel("Tractor plate").inputValue()) === "seal55" && (await visitsOf("SEAL55")).length === 0, "seal with no strength stated: refused in words, nothing recorded, the form keeps the truck");
+  await shot("7-seal-strength-needed");
+  const box = await page.getByLabel("Seal strength 1 (optional)").boundingBox();
+  expect(box !== null && box.height >= 48, `seal strength is a large touch target (${box?.height}px high)`);
+  await page.getByLabel("Seal strength 1 (optional)").selectOption({ label: "Security seal (S)" });
+  await page.getByRole("button", { name: "Check in this truck" }).click();
+  await page.getByText("SEAL55 is checked in.").waitFor();
+  const seals = await checkInsOf("SEAL55");
+  expect(
+    seals.length === 2 && !("sealClass" in seals[0].body.trailers[0]) && seals[1].body.trailers[0].sealClass === "S" && seals[0].key !== seals[1].key,
+    "seal strength: left out of the first request (no empty string), sent as sealClass S in the second, which is a new request with a new key",
+  );
+  await shot("8-seal-strength-accepted");
+
+  // ---- gate: a suspended carrier is turned away once (yard-management ADR 0016) ----
+  const suspendedTruck = async (plate, unit) => {
+    await page.getByLabel("Carrier", { exact: true }).fill("Suspended Haulage");
+    await page.getByLabel("Carrier code (optional)").fill("susp");
+    await page.getByLabel("Tractor plate").fill(plate);
+    await page.getByLabel("Purpose").selectOption("DROP");
+    await settle();
+    await scan("Scan the trailer unit number", unit);
+    await page.getByLabel("Kind of trailer 1").selectOption("DRY_VAN");
+    await page.getByLabel("Load state 1").selectOption("EMPTY");
+  };
+  const formIsGone = async () => (await page.getByRole("button", { name: "Check in this truck" }).count()) === 0 && (await page.getByLabel("Tractor plate").count()) === 0;
+  await suspendedTruck("susp99", "E2E-SUSP-1");
+  await page.getByRole("button", { name: "Check in this truck" }).click();
+  await page.getByRole("heading", { name: "SUSP99 is turned away" }).waitFor();
+  await page.getByText("This carrier is suspended, so the truck is turned away. The turn-away is already recorded.").waitFor();
+  await shot("9-turned-away");
+  expect(await formIsGone(), "suspended carrier: the truck's form is gone, there is nothing left to submit");
+  await page.keyboard.press("Enter"); // a stray scanner Enter
+  await page.getByRole("button", { name: "Reject", exact: true }).click();
+  await page.getByRole("button", { name: "Check in", exact: true }).click();
+  await page.getByRole("heading", { name: "SUSP99 is turned away" }).waitFor();
+  expect(await formIsGone(), "the turned-away state survives a look at another gate job");
+  const once = await visitsOf("SUSP99");
+  expect(
+    (await checkInsOf("SUSP99")).length === 1 && once.length === 1 && once[0].state === "REJECTED" && once[0].rejectionReason === "CARRIER_SUSPENDED" && once[0].trailersIn.length === 0,
+    "suspended carrier: one request, one REJECTED visit (CARRIER_SUSPENDED) on record, no trailer",
+  );
+  await page.getByRole("button", { name: "Start the next truck" }).click();
+  expect((await page.getByLabel("Tractor plate").inputValue()) === "" && (await page.getByLabel("Carrier", { exact: true }).inputValue()) === "", "one explicit action starts the next truck on an empty form");
+
+  // The same refusal arriving on a replay: saved offline, answered when the network is back.
+  await suspendedTruck("susp77", "E2E-SUSP-2");
+  await context.setOffline(true);
+  await page.getByText("You are offline").waitFor();
+  await page.getByRole("button", { name: "Check in this truck" }).click();
+  await page.getByText(/Your check-in is saved on this device/).waitFor();
+  await context.setOffline(false);
+  await page.getByRole("heading", { name: "SUSP77 is turned away" }).waitFor({ timeout: 20000 });
+  expect(await formIsGone(), "replayed refusal: the form that was still filled is gone");
+  expect((await page.getByText(/Try again/).count()) === 0, "replayed refusal: one message, and it does not say to try again");
+  await page.waitForTimeout(6500); // longer than the outbox retry interval: a retry would show up in the stub log
+  const replayed = await visitsOf("SUSP77", "REJECTED");
+  expect((await checkInsOf("SUSP77")).length === 1 && replayed.length === 1, "replayed refusal: sent once, never retried, one REJECTED visit on record");
+  await shot("10-turned-away-after-replay");
+  await page.getByRole("button", { name: "Start the next truck" }).click();
+  await stub("yard-policy", { minimumSealClass: null, suspendedCarrierAction: "NONE" });
 
   // ---- the rules of the repo ----
   const posts = requests.filter((r) => r.method === "POST");
