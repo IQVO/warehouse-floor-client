@@ -5,9 +5,12 @@ import { describeYardFailure } from "../../api/yardMessages";
 import { yardManagementApi, type CheckIn, type Visit } from "../../api/yardManagement";
 import { useServices } from "../../app/servicesContext";
 import type { Outcome } from "../../lib/commands";
+import { problemCode } from "../../lib/problem";
 import { CheckInForm } from "./CheckInForm";
 import { CheckOutPanel } from "./CheckOutPanel";
 import { RejectForm } from "./RejectForm";
+import { withTurnAway, type TurnAway } from "./turnAway";
+import { TurnedAway } from "./TurnedAway";
 import { placeText, reasonText, rejectionText } from "./yardFormat";
 import { useYardPrefs, useYardSettled } from "./yardPrefs";
 import { YardNotice, YardWho } from "./yardUi";
@@ -27,10 +30,20 @@ export function GateScreen() {
   const [mode, setMode] = useState<Mode>("check-in");
   const [notice, setNotice] = useState<Message | null>(null);
   const [admitted, setAdmitted] = useState<CheckIn | null>(null);
+  const [turnedAway, setTurnedAway] = useState<TurnAway | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const answered = useCallback((kind: string, outcome: Outcome, reset?: () => void) => {
+  const answered = useCallback((kind: string, outcome: Outcome, reset?: () => void, tractorPlate = "") => {
     const failure = describeYardFailure(outcome, kind === "yard-check-in" ? "check-in" : kind === "yard-reject" ? "rejection" : "check-out");
+    // The one refusal that is not "nothing happened": the REJECTED visit is on record before the 409 is answered
+    // (yard-management ADR 0016). The truck is finished: its form goes, so nothing can send it a second time.
+    if (kind === "yard-check-in" && failure !== null && outcome.state === "problem" && problemCode(outcome.problem) === "carrier-suspended") {
+      reset?.();
+      setAdmitted(null);
+      setNotice(null);
+      setTurnedAway((previous) => withTurnAway(previous, tractorPlate, failure));
+      return;
+    }
     if (failure !== null || outcome.state !== "done") {
       setNotice(failure);
       return;
@@ -56,13 +69,14 @@ export function GateScreen() {
 
   // A command saved offline (or before a reload) is answered later by a replay: show that answer too.
   useYardSettled((entry, outcome) => {
-    if (["yard-check-in", "yard-reject", "yard-check-out"].includes(entry.kind)) answered(entry.kind, outcome);
+    if (["yard-check-in", "yard-reject", "yard-check-out"].includes(entry.kind)) answered(entry.kind, outcome, undefined, entry.meta.tractorPlate);
   });
 
   return (
     <div className="floor-stack">
       <YardWho prefs={prefs} onChange={setPrefs} />
       <YardNotice message={notice} onDismiss={() => setNotice(null)} />
+      {turnedAway !== null && <TurnedAway turnAway={turnedAway} onNext={() => setTurnedAway(null)} />}
       <fieldset className="floor-modes">
         <legend className="floor-muted">At the gate</legend>
         {MODES.map((m) => (
@@ -72,7 +86,8 @@ export function GateScreen() {
         ))}
       </fieldset>
 
-      {mode === "check-in" && <CheckInForm siteId={prefs.siteId} api={api} onNotice={setNotice} onOutcome={(o, reset) => answered("yard-check-in", o, reset)} />}
+      {/* Not mounted while a truck is turned away: the form's state goes with it, so the next truck starts empty. */}
+      {mode === "check-in" && turnedAway === null && <CheckInForm siteId={prefs.siteId} api={api} onNotice={setNotice} onOutcome={(o, reset, plate) => answered("yard-check-in", o, reset, plate)} />}
       {mode === "reject" && <RejectForm siteId={prefs.siteId} api={api} onNotice={setNotice} onOutcome={(o, reset) => answered("yard-reject", o, reset)} />}
       {mode === "check-out" && <CheckOutPanel key={`${prefs.siteId}:${refreshKey}`} siteId={prefs.siteId} api={api} onNotice={setNotice} onOutcome={(o) => answered("yard-check-out", o)} />}
 

@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { turnAwayTitle, withTurnAway } from "./turnAway";
 import { YARD_PREFS_KEY } from "./yardPrefs";
 import { createHarness, renderApp, type Harness } from "../../test/renderApp";
 import { jsonResponse } from "../../test/fetchStub";
@@ -42,6 +43,116 @@ const CHECK_IN_BODY = {
   appointmentId: "appt-1",
   trailers: [{ unitNumber: "TRL-4471", kind: "DRY_VAN", loadState: "LOADED", sealNumber: "S-100" }],
 };
+
+const SUSPENDED = () => yardProblem(409, "carrier-suspended", "The carrier is suspended", "the carrier is suspended: SCAC ACME is suspended; visit vis-0a1b is recorded as REJECTED");
+
+// yard-management ADR 0012, OpenAPI TrailerIn.sealClass (I | S | H, optional, needs a sealNumber). A site whose
+// yard policy sets a minimum class refuses a seal with no class (409 seal-class-too-low), so the clerk can state it.
+describe("gate clerk: seal strength at check-in", () => {
+  const STRENGTH = "Seal strength 1 (optional)";
+
+  it("asks for the strength only once a seal number is typed, in plain words, and sends nothing when it is not stated", async () => {
+    const h = atGate();
+    h.fetchStub.on(`POST ${YB}/visits`, jsonResponse(201, checkIn()));
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await user.type(screen.getByLabelText("Carrier"), "Acme Freight");
+    await user.type(screen.getByLabelText("Tractor plate"), "abc1234");
+    await user.selectOptions(screen.getByLabelText("Purpose"), "DROP");
+    wedge("Scan the trailer unit number", "TRL-4471");
+    await user.selectOptions(await screen.findByLabelText("Kind of trailer 1"), "DRY_VAN");
+    await user.selectOptions(screen.getByLabelText("Load state 1"), "LOADED");
+    expect(screen.queryByLabelText(STRENGTH)).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Seal number 1 (optional)"), "S-100");
+    const select = screen.getByLabelText(STRENGTH);
+    expect(select).toHaveValue("");
+    const options = within(select).getAllByRole("option");
+    expect(options.map((o) => (o as HTMLOptionElement).value)).toEqual(["", "I", "S", "H"]);
+    expect(options.map((o) => o.textContent)).toEqual(["Not stated", "Light seal: only shows tampering (I)", "Security seal (S)", "High-security seal (H)"]);
+    // Words first: no option is a bare letter or a standard number.
+    for (const o of options) expect(o.textContent ?? "").not.toMatch(/^[ISH]$|17712|ISO/);
+
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    await screen.findByText("ABC1234 is checked in.");
+    const sent = h.fetchStub.callsTo(`POST ${YB}/visits`)[0]?.body as { trailers: Record<string, unknown>[] };
+    expect(sent.trailers).toEqual([{ unitNumber: "TRL-4471", kind: "DRY_VAN", loadState: "LOADED", sealNumber: "S-100" }]);
+    expect(JSON.stringify(sent)).not.toContain("sealClass");
+  });
+
+  it("sends the chosen strength as trailers[].sealClass", async () => {
+    const h = atGate();
+    h.fetchStub.on(`POST ${YB}/visits`, jsonResponse(201, checkIn()));
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await fillCheckIn(user, { appointment: "appt-1" });
+    await user.selectOptions(screen.getByLabelText(STRENGTH), "High-security seal (H)");
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    await screen.findByText("ABC1234 is checked in.");
+    expect(h.fetchStub.callsTo(`POST ${YB}/visits`)[0]?.body).toEqual({ ...CHECK_IN_BODY, trailers: [{ ...CHECK_IN_BODY.trailers[0], sealClass: "H" }] });
+  });
+
+  it("clearing the seal number takes the strength with it", async () => {
+    const h = atGate();
+    h.fetchStub.on(`POST ${YB}/visits`, jsonResponse(201, checkIn()));
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await fillCheckIn(user);
+    await user.selectOptions(screen.getByLabelText(STRENGTH), "S");
+    await user.clear(screen.getByLabelText("Seal number 1 (optional)"));
+    expect(screen.queryByLabelText(STRENGTH)).not.toBeInTheDocument();
+    // A seal typed afterwards starts with no strength stated: the old choice does not come back by itself.
+    await user.type(screen.getByLabelText("Seal number 1 (optional)"), "S-200");
+    expect(screen.getByLabelText(STRENGTH)).toHaveValue("");
+    await user.clear(screen.getByLabelText("Seal number 1 (optional)"));
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    await screen.findByText("ABC1234 is checked in.");
+    const sent = h.fetchStub.callsTo(`POST ${YB}/visits`)[0]?.body as { trailers: Record<string, unknown>[] };
+    expect(sent.trailers).toEqual([{ unitNumber: "TRL-4471", kind: "DRY_VAN", loadState: "LOADED" }]);
+  });
+
+  it("seal-class-too-low: the form keeps the truck, the clerk states the strength and the second request carries it under a new key", async () => {
+    const h = atGate();
+    h.fetchStub.on(`POST ${YB}/visits`, (call) =>
+      (call.body as { trailers: { sealClass?: string }[] }).trailers[0]?.sealClass === "H"
+        ? jsonResponse(201, checkIn())
+        : yardProblem(409, "seal-class-too-low", "The seal class is below the minimum of the site", "seal class is too low: the site requires class H and the seal has no class"),
+    );
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await fillCheckIn(user, { appointment: "appt-1" });
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("this trailer's seal is weaker or its strength was not stated");
+    expect(alert).toHaveTextContent("choose it and check in again");
+    expect(alert.textContent).not.toMatch(/class H|requires|usecases|\{|409/);
+    expect(screen.getByLabelText("Tractor plate")).toHaveValue("abc1234");
+
+    await user.selectOptions(screen.getByLabelText(STRENGTH), "H");
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    expect(await screen.findByText("ABC1234 is checked in.")).toBeInTheDocument();
+    const calls = h.fetchStub.callsTo(`POST ${YB}/visits`);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.body).toMatchObject({ trailers: [{ sealNumber: "S-100", sealClass: "H" }] });
+    expect(JSON.stringify(calls[0]?.body)).not.toContain("sealClass");
+    expect(calls[1]?.headers["idempotency-key"]).not.toBe(calls[0]?.headers["idempotency-key"]);
+  });
+
+  it("invalid-seal-class is explained in operator words", async () => {
+    const h = atGate();
+    h.fetchStub.on(`POST ${YB}/visits`, yardProblem(422, "invalid-seal-class", "The seal class is invalid", 'invalid seal class: "X" is not one of I, S or H'));
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await fillCheckIn(user);
+    await user.selectOptions(screen.getByLabelText(STRENGTH), "I");
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The system did not accept the seal strength that was sent.");
+    expect(alert).toHaveTextContent("Choose the seal strength again");
+    expect(alert.textContent).not.toMatch(/"X"|is not one of|The seal class is invalid|422/);
+    expect(screen.getByLabelText("Tractor plate")).toHaveValue("abc1234");
+  });
+});
 
 describe("gate clerk: check in", () => {
   it("happy path: appointment + one scanned trailer, sent once with a key, and the driver is told where to go", async () => {
@@ -131,20 +242,164 @@ describe("gate clerk: check in", () => {
   });
 
   // yard-management ADR 0016: under the REJECT policy the service records the REJECTED visit and THEN answers
-  // 409 `carrier-suspended`. Checking in again would record a second turn-away, so nothing may suggest it.
-  it("problem path: a suspended carrier is shown as turned away and on record, with no advice to try again", async () => {
+  // 409 `carrier-suspended`. Checking in again would record a second turn-away, so the screen ends the truck:
+  // nothing typed is left to send, and the next truck starts with one explicit tap.
+  it("a suspended carrier ends the truck: turned away and on record, nothing left to submit, one tap for the next truck", async () => {
     const h = atGate();
-    h.fetchStub.on(`POST ${YB}/visits`, yardProblem(409, "carrier-suspended", "The carrier is suspended", "the carrier is suspended: SCAC ACME is suspended; visit vis-0a1b is recorded as REJECTED"));
+    h.fetchStub.on(`POST ${YB}/visits`, SUSPENDED());
     const user = userEvent.setup({ delay: null });
     renderApp(h, "/yard/gate");
     await fillCheckIn(user);
     await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("This carrier is suspended, so the truck is turned away. The turn-away is already recorded.");
     expect(alert).toHaveTextContent("The truck does not enter. Tell the driver.");
     expect(alert.textContent).not.toMatch(/try again|keeps happening|vis-0a1b|SCAC|usecases|\{|409/i);
+    expect(screen.getByRole("heading", { name: "ABC1234 is turned away" })).toBeInTheDocument();
     expect(screen.queryByText("Where the driver goes")).not.toBeInTheDocument();
+
+    // The truck's data is gone from the screen: no form, no submit button, and the message cannot be dismissed away.
+    expect(screen.queryByRole("button", { name: "Check in this truck" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Tractor plate")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Seal number 1 (optional)")).not.toBeInTheDocument();
+    expect(within(alert).queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
+    await user.keyboard("{Enter}");
+
+    // Looking at another job and coming back does not bring the form back either.
+    await user.click(screen.getByRole("button", { name: "Reject" }));
+    expect(screen.getByRole("heading", { name: "ABC1234 is turned away" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Check in" }));
+    expect(screen.queryByRole("button", { name: "Check in this truck" })).not.toBeInTheDocument();
     expect(h.fetchStub.callsTo(`POST ${YB}/visits`)).toHaveLength(1);
+
+    // One explicit action starts the next truck, on an empty form.
+    await user.click(screen.getByRole("button", { name: "Start the next truck" }));
+    expect(screen.queryByRole("heading", { name: "ABC1234 is turned away" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Tractor plate")).toHaveValue("");
+    expect(screen.getByLabelText("Carrier")).toHaveValue("");
+    expect(screen.getByLabelText("Purpose")).toHaveValue("");
+    expect(screen.queryByLabelText("Kind of trailer 1")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check in this truck" })).toBeEnabled();
+    expect(h.fetchStub.callsTo(`POST ${YB}/visits`)).toHaveLength(1);
+  });
+
+  it("a suspended carrier answered on a replay, on the same page: the form that was still filled is gone, and the command is never sent again", async () => {
+    const h = atGate(createHarness({ online: false }));
+    h.fetchStub.on(`POST ${YB}/visits`, SUSPENDED());
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await fillCheckIn(user);
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    expect(await screen.findByText(/Your check-in is saved on this device/)).toBeInTheDocument();
+    // Saved, not answered: the form still holds the truck (a second tap would reuse the saved key).
+    expect(screen.getByLabelText("Tractor plate")).toHaveValue("abc1234");
+    const key = h.outbox.list()[0]?.key;
+
+    h.connectivity.setBrowserOnline(true);
+    window.dispatchEvent(new Event("online"));
+    expect(await screen.findByRole("heading", { name: "ABC1234 is turned away" })).toBeInTheDocument();
+    // One message, the yard's: the station flow must not add its generic "Try again" for a command that is not its own.
+    expect(screen.getByRole("alert")).toHaveTextContent("The turn-away is already recorded.");
+    expect(screen.queryByText(/Try again/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/saved on this device/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check in this truck" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Tractor plate")).not.toBeInTheDocument();
+
+    // Done with its answer: out of the outbox, and later replays have nothing to send.
+    expect(h.outbox.list()).toHaveLength(0);
+    await h.services.runner.flush();
+    window.dispatchEvent(new Event("online"));
+    await h.services.runner.flush();
+    const sent = h.fetchStub.callsTo(`POST ${YB}/visits`);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.headers["idempotency-key"]).toBe(key);
+
+    await user.click(screen.getByRole("button", { name: "Start the next truck" }));
+    expect(screen.getByLabelText("Tractor plate")).toHaveValue("");
+  });
+
+  it("a suspended carrier answered on a replay after a reload shows the same turned-away state", async () => {
+    const h = atGate(createHarness({ online: false }));
+    const user = userEvent.setup({ delay: null });
+    const first = renderApp(h, "/yard/gate");
+    await fillCheckIn(user);
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    await screen.findByText(/Your check-in is saved on this device/);
+    const key = h.outbox.list()[0]?.key;
+    first.unmount();
+
+    const h2 = createHarness({ store: h.store });
+    h2.fetchStub.on(`POST ${YB}/visits`, SUSPENDED());
+    renderApp(h2, "/yard/gate");
+    expect(await screen.findByRole("heading", { name: "ABC1234 is turned away" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("This carrier is suspended, so the truck is turned away.");
+    expect(screen.queryByText(/Try again/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Check in this truck" })).not.toBeInTheDocument();
+    expect(h2.outbox.list()).toHaveLength(0);
+    await h2.services.runner.flush();
+    const sent = h2.fetchStub.callsTo(`POST ${YB}/visits`);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.headers["idempotency-key"]).toBe(key);
+    await user.click(screen.getByRole("button", { name: "Start the next truck" }));
+    expect(screen.getByRole("button", { name: "Check in this truck" })).toBeEnabled();
+  });
+
+  it("two saved check-ins of suspended carriers answered one after another: both trucks are named, each was sent once", async () => {
+    const h = atGate(createHarness({ online: false }));
+    h.fetchStub.on(`POST ${YB}/visits`, SUSPENDED());
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await fillCheckIn(user);
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    await screen.findByText(/Your check-in is saved on this device/);
+    // Still offline, the next truck is typed over the first.
+    await user.clear(screen.getByLabelText("Tractor plate"));
+    await user.type(screen.getByLabelText("Tractor plate"), "xyz9");
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    await waitFor(() => expect(h.outbox.list()).toHaveLength(2));
+
+    h.connectivity.setBrowserOnline(true);
+    window.dispatchEvent(new Event("online"));
+    expect(await screen.findByRole("heading", { name: "Turned away: ABC1234, XYZ9" })).toBeInTheDocument();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(h.outbox.list()).toHaveLength(0);
+    await h.services.runner.flush();
+    expect(h.fetchStub.callsTo(`POST ${YB}/visits`).map((c) => (c.body as { tractorPlate: string }).tractorPlate)).toEqual(["ABC1234", "XYZ9"]);
+    await user.click(screen.getByRole("button", { name: "Start the next truck" }));
+    expect(screen.getByLabelText("Tractor plate")).toHaveValue("");
+  });
+
+  it("any yard refusal answered on a replay is said once, in the yard's words", async () => {
+    const h = atGate(createHarness({ online: false }));
+    const user = userEvent.setup({ delay: null });
+    const first = renderApp(h, "/yard/gate");
+    await fillCheckIn(user);
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    await screen.findByText(/Your check-in is saved on this device/);
+    first.unmount();
+
+    const h2 = createHarness({ store: h.store });
+    h2.fetchStub.on(`POST ${YB}/visits`, yardProblem(409, "placement-rule-violated", "A placement rule is violated"));
+    renderApp(h2, "/yard/gate");
+    expect(await screen.findByText(/it may only stand on a spot set aside for that/)).toBeInTheDocument();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(screen.queryByText("A placement rule is violated.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Try again/i)).not.toBeInTheDocument();
+  });
+
+  it("another refusal is not terminal: the form keeps the truck and can be sent again", async () => {
+    const h = atGate();
+    h.fetchStub.on(`POST ${YB}/visits`, yardProblem(409, "visit-already-open", "A visit is already open"));
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await fillCheckIn(user);
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("This tractor plate is already checked in.");
+    expect(screen.queryByRole("button", { name: "Start the next truck" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check in this truck" })).toBeEnabled();
+    expect(screen.getByLabelText("Tractor plate")).toHaveValue("abc1234");
   });
 
   it("a seal mismatch under the REJECT policy comes back as a REJECTED visit and is shown as turned away", async () => {
@@ -206,6 +461,23 @@ describe("gate clerk: check in", () => {
     expect(await screen.findByText("ABC1234 is checked in.")).toBeInTheDocument();
     expect(h2.fetchStub.callsTo(`POST ${YB}/visits`)[0]?.headers["idempotency-key"]).toBe(key);
     expect(h2.outbox.list()).toHaveLength(0);
+  });
+});
+
+describe("withTurnAway", () => {
+  const message = { tone: "warning" as const, what: "w", todo: "t" };
+  it("names each turned-away plate once, oldest first, and adds nothing for a command that carried no plate", () => {
+    const one = withTurnAway(null, "AAA1", message);
+    expect(one.tractorPlates).toEqual(["AAA1"]);
+    expect(withTurnAway(withTurnAway(one, "BBB2", message), "AAA1", message).tractorPlates).toEqual(["BBB2", "AAA1"]);
+    expect(withTurnAway(null, "", message).tractorPlates).toEqual([]);
+    expect(withTurnAway(one, "", message).tractorPlates).toEqual(["AAA1"]);
+  });
+
+  it("titles the card for no plate, one plate and several", () => {
+    expect(turnAwayTitle([])).toBe("This truck is turned away");
+    expect(turnAwayTitle(["AAA1"])).toBe("AAA1 is turned away");
+    expect(turnAwayTitle(["AAA1", "BBB2"])).toBe("Turned away: AAA1, BBB2");
   });
 });
 
