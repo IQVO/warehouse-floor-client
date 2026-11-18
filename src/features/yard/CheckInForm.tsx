@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Card } from "@warehouse/ui-kit";
 import type { Message } from "../../api/problemMessages";
-import { LOAD_STATES, PURPOSES, TRAILER_KINDS, type CheckIn, type YardManagementApi } from "../../api/yardManagement";
+import { LOAD_STATES, PURPOSES, SEAL_CLASSES, TRAILER_KINDS, type CheckIn, type YardManagementApi } from "../../api/yardManagement";
 import { ScanInput } from "../../components/ScanInput";
 import type { Outcome } from "../../lib/commands";
 import { bringsTrailers, buildCheckIn, emptyCheckIn, emptyTrailer, type CheckInDraft, type TrailerDraft } from "./checkInRules";
-import { purposeText } from "./yardFormat";
+import { purposeText, SEAL_CLASS_TEXT } from "./yardFormat";
 import { readYardCode } from "./yardScan";
 import { VisitFields } from "./VisitFields";
 
@@ -21,7 +21,8 @@ export function CheckInForm({
 }: {
   siteId: string;
   api: YardManagementApi;
-  onOutcome: (outcome: Outcome<CheckIn>, reset: () => void) => void;
+  /** `tractorPlate` is the plate as it was sent, so the screen can name the truck the answer is about. */
+  onOutcome: (outcome: Outcome<CheckIn>, reset: () => void, tractorPlate: string) => void;
   onNotice: (message: Message | null) => void;
 }) {
   const [draft, setDraft] = useState<CheckInDraft>(emptyCheckIn);
@@ -52,7 +53,7 @@ export function CheckInForm({
     }
     setBusy(true);
     try {
-      onOutcome(await api.checkInVisit(built.body), () => setDraft(emptyCheckIn));
+      onOutcome(await api.checkInVisit(built.body), () => setDraft(emptyCheckIn), built.body.tractorPlate);
     } finally {
       setBusy(false);
     }
@@ -106,7 +107,30 @@ export function CheckInForm({
                   ))}
                 </select>
                 <label htmlFor={`seal-${i}`}>Seal number {i + 1} (optional)</label>
-                <input id={`seal-${i}`} className="floor-input" value={t.sealNumber} autoComplete="off" onChange={(e) => patchTrailer(i, { sealNumber: e.target.value })} />
+                <input
+                  id={`seal-${i}`}
+                  className="floor-input"
+                  value={t.sealNumber}
+                  autoComplete="off"
+                  // No seal, no strength: a choice made for a seal that was then removed must not come back by itself.
+                  onChange={(e) => patchTrailer(i, e.target.value.trim() === "" ? { sealNumber: e.target.value, sealClass: "" } : { sealNumber: e.target.value })}
+                />
+                {t.sealNumber.trim() !== "" && (
+                  <>
+                    <label htmlFor={`seal-class-${i}`}>Seal strength {i + 1} (optional)</label>
+                    <select id={`seal-class-${i}`} className="floor-input" value={t.sealClass} aria-describedby={`seal-class-hint-${i}`} onChange={(e) => patchTrailer(i, { sealClass: e.target.value as TrailerDraft["sealClass"] })}>
+                      <option value="">Not stated</option>
+                      {SEAL_CLASSES.map((c) => (
+                        <option key={c} value={c}>
+                          {SEAL_CLASS_TEXT[c]}
+                        </option>
+                      ))}
+                    </select>
+                    <span id={`seal-class-hint-${i}`} className="floor-muted">
+                      The letter marked on the seal or written on the paperwork: I, S or H. Some sites only take stronger seals. If you cannot tell, leave it not stated.
+                    </span>
+                  </>
+                )}
                 <button type="button" className="floor-btn floor-btn--quiet" onClick={() => setDraft((d) => ({ ...d, trailers: d.trailers.filter((_, j) => j !== i) }))}>
                   Remove trailer {i + 1}
                 </button>

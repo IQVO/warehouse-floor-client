@@ -64,6 +64,44 @@ describe("buildCheckIn", () => {
     expect(fails({ ...base, trailers: [trailerOk, { ...trailerOk, unitNumber: "trl-1" }] })).toMatch(/listed twice/);
   });
 
+  // yard-management ADR 0012, OpenAPI TrailerIn.sealClass: enum I | S | H, optional, "needs a sealNumber".
+  describe("seal class", () => {
+    const sealed = { ...trailerOk, sealNumber: "S-100" };
+    const sent = (t: typeof trailerOk) => {
+      const r = buildCheckIn("WH1", { ...base, trailers: [t] });
+      if (!r.ok) throw new Error(r.message);
+      return r.body.trailers?.[0];
+    };
+
+    it("a new trailer states no class", () => {
+      expect(emptyTrailer("TRL-9")).toMatchObject({ sealNumber: "", sealClass: "" });
+    });
+
+    it.each(["I", "S", "H"] as const)("sends class %s as trailers[].sealClass next to the seal number", (sealClass) => {
+      expect(sent({ ...sealed, sealClass })).toEqual({ unitNumber: "TRL-1", kind: "DRY_VAN", loadState: "LOADED", sealNumber: "S-100", sealClass });
+    });
+
+    it("leaves the property out when the class is not stated: never an empty string, never null", () => {
+      const t = sent(sealed);
+      expect(t).toEqual({ unitNumber: "TRL-1", kind: "DRY_VAN", loadState: "LOADED", sealNumber: "S-100" });
+      expect(Object.keys(t ?? {})).not.toContain("sealClass");
+      expect(JSON.stringify(t)).not.toContain("sealClass");
+    });
+
+    it("leaves the class out when there is no seal, even if one was chosen before the number was cleared", () => {
+      for (const sealNumber of ["", "   "]) {
+        const t = sent({ ...trailerOk, sealNumber, sealClass: "H" });
+        expect(Object.keys(t ?? {}).sort()).toEqual(["kind", "loadState", "unitNumber"]);
+      }
+    });
+
+    it("refuses a class the API does not list, in a sentence, before anything is sent", () => {
+      for (const bad of ["X", "h", "HIGH", " "]) {
+        expect(fails({ ...base, trailers: [{ ...sealed, sealClass: bad as string as "H" }] })).toBe("Trailer 1: choose the seal strength again.");
+      }
+    });
+  });
+
   it("enforces the API's length limits", () => {
     expect(fails({ ...base, carrier: "x".repeat(101) })).toMatch(/too long/);
     expect(fails({ ...base, tractorPlate: "x".repeat(33) })).toMatch(/too long/);

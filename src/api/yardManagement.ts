@@ -18,6 +18,13 @@ export const TRAILER_KINDS = ["DRY_VAN", "REEFER", "FLATBED", "CONTAINER"] as co
 export type TrailerKind = (typeof TRAILER_KINDS)[number];
 export const LOAD_STATES = ["EMPTY", "LOADED", "PARTIAL"] as const;
 export type LoadState = (typeof LOAD_STATES)[number];
+/**
+ * `TrailerIn.sealClass` of POST /visits, weakest first: I indicative, S security, H high security (ISO 17712,
+ * yard-management ADR 0012). A site whose yard policy sets `minimumSealClass` refuses a seal of a lower class,
+ * or with no class, with 409 `seal-class-too-low`.
+ */
+export const SEAL_CLASSES = ["I", "S", "H"] as const;
+export type SealClass = (typeof SEAL_CLASSES)[number];
 /** The reasons a gate clerk may send: `RejectVisitRequest.reason` of POST /visit-rejections. */
 export const REJECTION_REASONS = ["APPOINTMENT_REQUIRED", "UNKNOWN_APPOINTMENT", "SEAL_MISMATCH", "TRAILER_ALREADY_ON_SITE", "SITE_REQUEST"] as const;
 export type RejectionReason = (typeof REJECTION_REASONS)[number];
@@ -67,7 +74,7 @@ export interface Trailer {
   state: "PARKED" | "IN_MOVE" | "DOCKED" | "DEPARTED";
   location?: YardLocation | null;
   doorWork?: "WAITING" | "IN_PROGRESS" | "DONE" | null;
-  seal: { number: string | null; state: "NONE" | "INTACT" | "BROKEN" };
+  seal: { number: string | null; state: "NONE" | "INTACT" | "BROKEN" | "APPLIED" | "VERIFIED" | "MISMATCH"; class?: SealClass | null };
   hold?: "DAMAGED" | "SEAL_BROKEN" | "NOT_FOUND" | "QUALITY" | "SECURITY" | null;
   asnNumbers: string[];
   outboundRef?: string | null;
@@ -112,6 +119,8 @@ export interface TrailerIn {
   kind: TrailerKind;
   loadState: LoadState;
   sealNumber?: string;
+  /** Optional, and only with a `sealNumber` (the OpenAPI: "needs a sealNumber"). Left out when not stated, never "". */
+  sealClass?: SealClass;
 }
 
 export interface CheckInRequest {
