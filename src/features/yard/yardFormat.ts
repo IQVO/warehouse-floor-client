@@ -1,4 +1,4 @@
-import type { KnownRejectionReason, Move, Purpose, Trailer, YardLocation } from "../../api/yardManagement";
+import type { CheckIn, KnownRejectionReason, Move, Purpose, SealClass, Trailer, YardLocation } from "../../api/yardManagement";
 
 export const placeText = (l: YardLocation | null | undefined): string => (l ? `${l.kind === "DOOR" ? "Door" : "Spot"} ${l.code}` : "—");
 
@@ -19,6 +19,24 @@ const PURPOSES: Record<Purpose, string> = {
   BOBTAIL: "Bobtail (no trailer)",
 };
 export const purposeText = (p: Purpose): string => PURPOSES[p] ?? p;
+
+/**
+ * A seal's class in the clerk's words (yard-management ADR 0012: I indicative, S security, H high security,
+ * weakest first). The letter is what is marked on the seal or written on the paperwork, so it stays, second.
+ */
+export const SEAL_CLASS_TEXT: Record<SealClass, string> = {
+  I: "Light seal: only shows tampering (I)",
+  S: "Security seal (S)",
+  H: "High-security seal (H)",
+};
+
+/** One sentence per trailer of a check-in: where its driver takes it. */
+export function driverDirections(admitted: CheckIn): string[] {
+  return admitted.moves.map((m) => {
+    const unit = admitted.trailers.find((t) => t.trailerId === m.trailerId)?.unitNumber ?? m.trailerId;
+    return `Take ${unit} to ${placeText(m.to)} (${reasonText(m.reason)}).`;
+  });
+}
 
 /** "—" when the service gave no due time; never a calm default. */
 export function dueText(move: Move): string {

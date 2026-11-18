@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { CommandRunner } from "../lib/commands";
 import { Connectivity } from "../lib/connectivity";
-import { Outbox } from "../lib/outbox";
+import { Outbox, type OutboxEntry } from "../lib/outbox";
 import { MemoryStore } from "../lib/storage";
 import { createFetchStub, jsonResponse } from "../test/fetchStub";
 import { YB, checkIn, move, trailer, visit, yardProblem } from "../test/yardFixtures";
 import { describeYardProblem, YARD_PROBLEM_CODES } from "./yardMessages";
-import { yardManagementApi, yardReads, type YardManagementApi } from "./yardManagement";
+import { SEAL_CLASSES, yardManagementApi, yardReads, type CheckInRequest, type YardManagementApi } from "./yardManagement";
 import { problemCode } from "../lib/problem";
 
 function runnerOn(store: MemoryStore, fetchStub: unknown, prefix: string) {
@@ -120,6 +120,119 @@ describe("yard commands: a changed body is a different action", () => {
   });
 });
 
+// yard-management ADR 0012, OpenAPI TrailerIn.sealClass: "type: string, enum: [I, S, H] ... Optional ISO 17712 class
+// of the seal ...; needs a sealNumber". The body is stored in the outbox as it was built and replayed as stored.
+describe("check-in seal class: the request and the offline outbox", () => {
+  const VISITS = `POST ${YB}/visits`;
+  const visitOf = (trailer: NonNullable<CheckInRequest["trailers"]>[number]): CheckInRequest => ({ siteId: "WH1", carrier: "Acme", tractorPlate: "ABC1234", purpose: "DROP", trailers: [trailer] });
+  const WITH_CLASS = visitOf({ unitNumber: "TRL-1", kind: "DRY_VAN", loadState: "LOADED", sealNumber: "S-100", sealClass: "H" });
+  const NO_CLASS = visitOf({ unitNumber: "TRL-1", kind: "DRY_VAN", loadState: "LOADED", sealNumber: "S-100" });
+  const NO_SEAL = visitOf({ unitNumber: "TRL-1", kind: "DRY_VAN", loadState: "EMPTY" });
+  const STORE_KEY = "wfc.outbox.v1";
+
+  it("knows the three classes of the OpenAPI enum, weakest first", () => {
+    expect(SEAL_CLASSES).toEqual(["I", "S", "H"]);
+  });
+
+  it("sends trailers[].sealClass when it is stated", async () => {
+    const stub = createFetchStub().on(VISITS, jsonResponse(201, checkIn()));
+    await yardManagementApi(runnerOn(new MemoryStore(), stub, "k")).checkInVisit(WITH_CLASS);
+    expect(stub.calls[0]?.body).toEqual(WITH_CLASS);
+    expect(stub.calls[0]?.body).toMatchObject({ trailers: [{ sealNumber: "S-100", sealClass: "H" }] });
+  });
+
+  it.each([
+    ["a seal with no class stated", NO_CLASS],
+    ["no seal", NO_SEAL],
+  ])("leaves the property out for %s (no empty string, no null)", async (_name, body) => {
+    const stub = createFetchStub().on(VISITS, jsonResponse(201, checkIn()));
+    await yardManagementApi(runnerOn(new MemoryStore(), stub, "k")).checkInVisit(body);
+    expect(stub.calls[0]?.body).toEqual(body);
+    expect(JSON.stringify(stub.calls[0]?.body)).not.toContain("sealClass");
+  });
+
+  it.each([
+    ["with a seal class", WITH_CLASS],
+    ["without one", NO_CLASS],
+  ])("a queued check-in %s is stored whole, survives a reload and replays the same body with the same key", async (_name, body) => {
+    const store = new MemoryStore();
+    const stub = createFetchStub().on(VISITS, "network-error");
+    expect(await yardManagementApi(runnerOn(store, stub, "a")).checkInVisit(body)).toMatchObject({ state: "queued", key: "a-1" });
+
+    // What is on the device is the request itself.
+    const stored = JSON.parse(store.getItem(STORE_KEY) ?? "[]") as OutboxEntry[];
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ key: "a-1", kind: "yard-check-in", method: "POST", path: `${YB}/visits`, body, dedupeId: "yard-check-in:WH1:ABC1234" });
+
+    // Reload: a new outbox and a new runner read the store.
+    stub.on(VISITS, jsonResponse(201, checkIn()));
+    await runnerOn(store, stub, "b").flush();
+    const replay = stub.callsTo(VISITS).at(-1);
+    expect(replay?.headers["idempotency-key"]).toBe("a-1");
+    expect(replay?.body).toEqual(body);
+    expect(JSON.stringify(replay?.body).includes("sealClass")).toBe(body === WITH_CLASS);
+    expect(new Outbox(store).list()).toHaveLength(0);
+  });
+
+  it("a check-in queued by a build that did not know sealClass still loads and replays untouched", async () => {
+    // Exactly what the previous build wrote: same storage key, same entry shape, a trailer with a seal number only.
+    const old = { key: "old-build-key", kind: "yard-check-in", method: "POST", path: `${YB}/visits`, body: NO_CLASS, dedupeId: "yard-check-in:WH1:ABC1234", meta: { siteId: "WH1", tractorPlate: "ABC1234" }, createdAt: 1_794_000_000_000, attempts: 3 };
+    const raw = JSON.stringify([old]);
+    const store = new MemoryStore();
+    store.setItem(STORE_KEY, raw);
+
+    const outbox = new Outbox(store);
+    expect(outbox.list()).toEqual([old]);
+    expect(store.getItem(STORE_KEY)).toBe(raw); // nothing to migrate: the field is optional, the stored shape is unchanged
+
+    const stub = createFetchStub().on(VISITS, jsonResponse(201, checkIn()));
+    await runnerOn(store, stub, "must-not-be-used").flush();
+    expect(stub.calls).toHaveLength(1);
+    expect(stub.calls[0]?.headers["idempotency-key"]).toBe("old-build-key");
+    expect(stub.calls[0]?.body).toEqual(NO_CLASS);
+    expect(JSON.stringify(stub.calls[0]?.body)).not.toContain("sealClass");
+    expect(new Outbox(store).list()).toHaveLength(0);
+  });
+
+  it("the same truck sent again with the class now stated is a different request: a new key, one entry", async () => {
+    const store = new MemoryStore();
+    const stub = createFetchStub().on(VISITS, "network-error");
+    const api = yardManagementApi(runnerOn(store, stub, "k"));
+    expect(await api.checkInVisit(NO_CLASS)).toMatchObject({ key: "k-1" });
+    expect(await api.checkInVisit(WITH_CLASS)).toMatchObject({ key: "k-2" });
+    expect(new Outbox(store).list().map((e) => e.key)).toEqual(["k-2"]);
+  });
+});
+
+// yard-management ADR 0016: the 409 `carrier-suspended` comes AFTER the REJECTED visit is recorded, so a retry
+// of any kind would record a second turn-away. Every 4xx is a definitive answer for the runner.
+describe("a queued check-in answered 409 carrier-suspended on replay", () => {
+  it("ends with that answer: the entry leaves the outbox, the listener hears it once, and nothing is sent again", async () => {
+    const VISITS = `POST ${YB}/visits`;
+    const store = new MemoryStore();
+    const stub = createFetchStub().on(VISITS, "network-error");
+    const body: CheckInRequest = { siteId: "WH1", carrier: "Acme", carrierScac: "ACME", tractorPlate: "ABC1234", purpose: "BOBTAIL" };
+    expect(await yardManagementApi(runnerOn(store, stub, "a")).checkInVisit(body)).toMatchObject({ state: "queued", key: "a-1" });
+
+    stub.on(VISITS, yardProblem(409, "carrier-suspended", "The carrier is suspended"));
+    const runner = runnerOn(store, stub, "b");
+    const heard: { kind: string; plate: string | undefined; state: string; slug: string }[] = [];
+    runner.onSettled((entry, outcome) => {
+      heard.push({ kind: entry.kind, plate: entry.meta.tractorPlate, state: outcome.state, slug: outcome.state === "problem" ? problemCode(outcome.problem) : "" });
+    });
+    await runner.flush();
+
+    expect(heard).toEqual([{ kind: "yard-check-in", plate: "ABC1234", state: "problem", slug: "carrier-suspended" }]);
+    expect(new Outbox(store).list()).toHaveLength(0);
+    const sentSoFar = stub.callsTo(VISITS).length;
+    await runner.flush();
+    await runnerOn(store, stub, "c").flush();
+    expect(stub.callsTo(VISITS)).toHaveLength(sentSoFar);
+    expect(stub.callsTo(VISITS).every((c) => c.headers["idempotency-key"] === "a-1")).toBe(true);
+    expect(heard).toHaveLength(1);
+  });
+});
+
 describe("yardReads", () => {
   it("follows nextCursor, sends limit 500 and drops empty filters", async () => {
     const stub = createFetchStub()
@@ -151,8 +264,9 @@ describe("yard problem copy", () => {
   /**
    * Every slug yard-management's OpenAPI (origin/develop) names for the calls these screens make. A slug the
    * service adds to one of those calls goes here first: this list failing is how a missing copy is caught.
-   * Left out on purpose: `invalid-seal-class`, `invalid-hazmat-class` and `invalid-un-number`. POST /visits
-   * answers them only for `sealClass`, `hazmatClass` and `unNumber`, which this client never sends.
+   * `invalid-seal-class` is here because the check-in form sends `sealClass`. Left out on purpose:
+   * `invalid-hazmat-class` and `invalid-un-number`. POST /visits answers them only for `hazmatClass` and
+   * `unNumber`, which this client never sends.
    */
   const SLUGS = [
     "appointment-required", "unknown-appointment", "visit-already-open", "trailer-already-on-site", "door-closed", "door-flow-mismatch", "no-free-spot",
@@ -160,8 +274,8 @@ describe("yard problem copy", () => {
     "no-claimable-move", "not-lease-holder", "unexplained-destination", "location-occupied", "destination-reserved", "unknown-location", "trailer-not-found",
     "visit-not-found", "move-not-found", "malformed-request-body", "precondition-failed", "dependency-unavailable",
     // yard-management ADR 0012 to 0016: identifiers at the gate, dock safety, placement, inspections, suspended carriers.
-    "carrier-suspended", "seal-class-too-low", "invalid-unit-number", "placement-rule-violated", "trailer-still-secured", "trailer-not-secured",
-    "inspection-required", "inspection-failed",
+    "carrier-suspended", "seal-class-too-low", "invalid-seal-class", "invalid-unit-number", "placement-rule-violated", "trailer-still-secured",
+    "trailer-not-secured", "inspection-required", "inspection-failed",
   ];
   const yardSlug = (slug: string, status = 409) => ({ type: `https://errors.yard-management.warehouse-systems.dev/${slug}`, title: "Service title", status, detail: "usecases: raw" });
   /** What a slug with no copy gets: the service title plus "Try again. If it keeps happening, call your lead." */
@@ -180,6 +294,7 @@ describe("yard problem copy", () => {
   it.each<[string, number, RegExp, RegExp]>([
     ["carrier-suspended", 409, /turned away/i, /does not enter/i],
     ["seal-class-too-low", 409, /seal/i, /your lead/i],
+    ["invalid-seal-class", 422, /seal strength/i, /choose the seal strength again/i],
     ["invalid-unit-number", 422, /container number/i, /enter it again/i],
     ["placement-rule-violated", 409, /dangerous goods/i, /spot set aside/i],
     ["trailer-still-secured", 409, /still secured/i, /released/i],
@@ -201,6 +316,18 @@ describe("yard problem copy", () => {
     expect(m.what).toMatch(/recorded/i);
     expect(m.todo).toMatch(/does not enter/i);
     expect(`${m.what} ${m.todo}`).not.toMatch(/try again|retry|in a moment/i);
+  });
+
+  it("seal-class-too-low: the clerk can fix it here by stating the strength, and is not told to just try again", () => {
+    const m = describeYardProblem(yardSlug("seal-class-too-low"));
+    expect(m.what).toMatch(/weaker|not stated/i);
+    expect(m.todo).toMatch(/choose (it|the seal strength)/i);
+    expect(m.todo).toMatch(/check in again/i);
+    expect(`${m.what} ${m.todo}`).not.toMatch(/class [ISH]\b|17712/);
+  });
+
+  it("the two slugs the form cannot trigger stay on the fallback", () => {
+    for (const slug of ["invalid-hazmat-class", "invalid-un-number"]) expect(YARD_PROBLEM_CODES, slug).not.toContain(slug);
   });
 
   it("keeps the generic fallback for a slug this build does not know", () => {

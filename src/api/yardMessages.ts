@@ -124,10 +124,16 @@ const BY_CODE: Record<string, Message> = {
     todo: "The truck does not enter. Tell the driver. Nothing more to enter: do not check it in again or use Reject.",
   },
   // ---- ADR 0012: identifiers at the gate (POST /visits) ----
+  // The form states the class (Seal strength), so the first fix is the clerk's own: say what the seal is.
   "seal-class-too-low": {
     tone: "warning",
-    what: "This site only takes seals of a set strength, and this trailer's seal is weaker or its strength is not on record.",
-    todo: "Tell your lead. The truck waits at the gate; if the seal cannot be accepted, turn it away (Reject at the gate).",
+    what: "This site only takes seals of a set strength, and this trailer's seal is weaker or its strength was not stated.",
+    todo: "If the seal strength was left out, choose it and check in again. If the seal really is weaker, tell your lead: the truck waits at the gate or is turned away (Reject at the gate).",
+  },
+  "invalid-seal-class": {
+    tone: "warning",
+    what: "The system did not accept the seal strength that was sent.",
+    todo: `Choose the seal strength again, or set it to Not stated, then check in again. ${CALL_LEAD}`,
   },
   "invalid-unit-number": {
     tone: "warning",

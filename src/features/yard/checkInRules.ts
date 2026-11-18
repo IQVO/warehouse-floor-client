@@ -1,11 +1,13 @@
-import type { CheckInRequest, LoadState, Purpose, RejectionReason, RejectRequest, TrailerKind } from "../../api/yardManagement";
-import { LOAD_STATES, PURPOSES, REJECTION_REASONS, TRAILER_KINDS } from "../../api/yardManagement";
+import type { CheckInRequest, LoadState, Purpose, RejectionReason, RejectRequest, SealClass, TrailerIn, TrailerKind } from "../../api/yardManagement";
+import { LOAD_STATES, PURPOSES, REJECTION_REASONS, SEAL_CLASSES, TRAILER_KINDS } from "../../api/yardManagement";
 
 export interface TrailerDraft {
   unitNumber: string;
   kind: TrailerKind | "";
   loadState: LoadState | "";
   sealNumber: string;
+  /** "" = not stated. Only sent with a seal number. */
+  sealClass: SealClass | "";
 }
 
 export interface CheckInDraft {
@@ -28,7 +30,7 @@ export const bringsTrailers = (purpose: Purpose | ""): boolean => purpose !== "B
 const SCAC = /^[A-Z]{2,4}$/;
 
 export function emptyTrailer(unitNumber: string): TrailerDraft {
-  return { unitNumber, kind: "", loadState: "", sealNumber: "" };
+  return { unitNumber, kind: "", loadState: "", sealNumber: "", sealClass: "" };
 }
 
 /** Plate and carrier code are written in capitals on the paperwork; send them that way. */
@@ -56,7 +58,9 @@ function visitFields(siteId: string, d: Pick<CheckInDraft, "carrier" | "carrierS
 /**
  * The check-in request, or the sentence that says what is missing. Trailer
  * rules follow the OpenAPI: a visit that names an appointment brings exactly
- * ONE trailer, otherwise one or more; a bobtail or a pickup brings none.
+ * ONE trailer, otherwise one or more; a bobtail or a pickup brings none. What
+ * is optional and empty (carrier code, appointment, driver, seal number, seal
+ * class) is left out of the body, never sent as "".
  */
 export function buildCheckIn(siteId: string, d: CheckInDraft): Built<CheckInRequest> {
   const base = visitFields(siteId, d);
@@ -76,7 +80,7 @@ export function buildCheckIn(siteId: string, d: CheckInDraft): Built<CheckInRequ
   if (n === 0) return { ok: false, message: "Scan the trailer unit number. At least one trailer is needed." };
 
   const seen = new Set<string>();
-  const trailers = [];
+  const trailers: TrailerIn[] = [];
   for (const [i, t] of d.trailers.entries()) {
     const unitNumber = t.unitNumber.trim();
     const label = `Trailer ${i + 1}`;
@@ -88,7 +92,10 @@ export function buildCheckIn(siteId: string, d: CheckInDraft): Built<CheckInRequ
     if (t.loadState === "" || !LOAD_STATES.includes(t.loadState)) return { ok: false, message: `${label}: choose whether it is empty, loaded or part loaded.` };
     const seal = t.sealNumber.trim();
     if (seal.length > 64) return { ok: false, message: `${label}: the seal number is too long (64 characters at most).` };
-    trailers.push({ unitNumber, kind: t.kind, loadState: t.loadState, ...(seal === "" ? {} : { sealNumber: seal }) });
+    // The class describes a seal (OpenAPI: sealClass "needs a sealNumber"): with no seal there is nothing to state.
+    const sealClass = seal === "" ? "" : t.sealClass;
+    if (sealClass !== "" && !SEAL_CLASSES.includes(sealClass)) return { ok: false, message: `${label}: choose the seal strength again.` };
+    trailers.push({ unitNumber, kind: t.kind, loadState: t.loadState, ...(seal === "" ? {} : { sealNumber: seal }), ...(sealClass === "" ? {} : { sealClass }) });
   }
   return { ok: true, body: { ...request, trailers } };
 }

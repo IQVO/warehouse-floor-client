@@ -14,6 +14,20 @@
 // a DROP trailer whose door work completes gets a FROM_DOOR move to the first free
 // yard spot (ClearDoorAfterWork). Seal mismatch is FLAG by default (POST
 // /__stub/yard-policy {"sealMismatchAction":"REJECT"} switches it).
+//
+// The site yard policy also carries the two gate levers of yard-management ADR 0012
+// and 0016, both off after a reset, like a site that never set them:
+//   minimumSealClass        null | "I" | "S" | "H" (I below S below H). When set, a
+//                           trailer whose seal is of a lower class, or has no class, is
+//                           409 seal-class-too-low; a trailer with no seal is not judged.
+//   suspendedCarrierAction  "NONE" | "FLAG" | "REJECT". The carrier copy holds one
+//                           suspended carrier, SCAC SUSP. Under REJECT a check-in that
+//                           declares carrierScac SUSP records a REJECTED visit (reason
+//                           CARRIER_SUSPENDED, no trailer) and answers 409
+//                           carrier-suspended; FLAG admits it with carrierFlag SUSPENDED.
+// By hand:  curl -X POST localhost:8787/__stub/yard-policy -H 'Content-Type: application/json' \
+//             -d '{"minimumSealClass":"S","suspendedCarrierAction":"REJECT"}'
+// An unknown sealClass is 422 invalid-seal-class; a class with no sealNumber 422 validation.
 export const YARD = "/api/yard-management";
 const ERR = "https://errors.yard-management.warehouse-systems.dev";
 const SITE = "WH1";
@@ -28,6 +42,8 @@ const PURPOSES = ["DROP", "LIVE_UNLOAD", "LIVE_LOAD", "PICKUP", "BOBTAIL"];
 const REASONS = ["APPOINTMENT_REQUIRED", "UNKNOWN_APPOINTMENT", "SEAL_MISMATCH", "TRAILER_ALREADY_ON_SITE", "SITE_REQUEST"];
 const KINDS = ["DRY_VAN", "REEFER", "FLATBED", "CONTAINER"];
 const LOADS = ["EMPTY", "LOADED", "PARTIAL"];
+const SEAL_CLASSES = ["I", "S", "H"]; // weakest first
+const SUSPENDED_CARRIERS = ["SUSP"]; // the local copy of dock-scheduling's carrier registry
 
 export function createYardStub({ send, leaseMs }) {
   let visits, trailers, moves, seq, policy;
@@ -39,7 +55,7 @@ export function createYardStub({ send, leaseMs }) {
     trailers = [];
     moves = [];
     seq = 0;
-    policy = { sealMismatchAction: "FLAG" };
+    policy = { sealMismatchAction: "FLAG", minimumSealClass: null, suspendedCarrierAction: "NONE" };
     const t = newTrailer({ unitNumber: "SEED-TRL-1", kind: "DRY_VAN", loadState: "EMPTY" }, null, null, "PARKED", { kind: "SPOT", code: YARD_SPOTS[0] });
     trailers.push(t);
     addMove(t, "HOSTLER", t.location, { kind: "SPOT", code: YARD_SPOTS[1] }, "RELOCATE", { band: 3, dueBy: iso(Date.now() + 3_600_000) }, "REQUESTED");
@@ -51,7 +67,7 @@ export function createYardStub({ send, leaseMs }) {
     return {
       trailerId: id("trl"), siteId: SITE, unitNumber: t.unitNumber, carrierScac: t.carrierScac ?? null, kind: t.kind, loadState: t.loadState, state,
       location: location ?? null, doorWork: state === "DOCKED" ? "WAITING" : null,
-      seal: { number: t.sealNumber ?? null, state: t.sealNumber ? "INTACT" : "NONE" }, hold: null, asnNumbers: appt ? appt.asn : [], outboundRef: null,
+      seal: { number: t.sealNumber ?? null, state: t.sealNumber ? "INTACT" : "NONE", class: t.sealNumber ? (t.sealClass ?? null) : null }, hold: null, asnNumbers: appt ? appt.asn : [], outboundRef: null,
       visitId: visit?.visitId ?? null, appointmentId: visit?.appointmentId ?? null, arrivedAt: iso(), departedAt: null, openMoveId: null, version: 1,
     };
   }
@@ -102,10 +118,27 @@ export function createYardStub({ send, leaseMs }) {
     const units = list.map((t) => t.unitNumber);
     if (new Set(units).size !== units.length || trailers.some((t) => t.state !== "DEPARTED" && units.includes(t.unitNumber))) return problem(res, 409, "trailer-already-on-site", "Trailer is already on site", path);
 
+    // ADR 0016: the carrier rule judges the SCAC the check-in declares, after the plate, appointment and unit checks.
+    const suspended = policy.suspendedCarrierAction !== "NONE" && SUSPENDED_CARRIERS.includes(b.carrierScac);
     const visit = {
       visitId: id("visit"), siteId: SITE, carrier: b.carrier, carrierScac: b.carrierScac ?? null, tractorPlate: b.tractorPlate, driverRef: b.driverRef ?? null,
-      purpose: b.purpose, appointmentId: b.appointmentId ?? null, state: "CHECKED_IN", rejectionReason: null, trailersIn: [], trailersOut: [], arrivedAt: iso(), departedAt: null, version: 1,
+      purpose: b.purpose, appointmentId: b.appointmentId ?? null, state: "CHECKED_IN", rejectionReason: null, carrierFlag: suspended && policy.suspendedCarrierAction === "FLAG" ? "SUSPENDED" : null,
+      trailersIn: [], trailersOut: [], arrivedAt: iso(), departedAt: null, version: 1,
     };
+    if (suspended && policy.suspendedCarrierAction === "REJECT") {
+      // The turn-away is recorded FIRST and the call is still a 409: no trailer is kept and the seal is not judged.
+      visits.push({ ...visit, state: "REJECTED", rejectionReason: "CARRIER_SUSPENDED" });
+      const detail = `the carrier is suspended: SCAC ${b.carrierScac} is suspended; visit ${visit.visitId} is recorded as REJECTED`;
+      return send(res, 409, { type: `${ERR}/carrier-suspended`, title: "The carrier is suspended", status: 409, detail, instance: path });
+    }
+    // ADR 0012: the seal class, then the site minimum (an unclassified seal does not satisfy it; no seal is not judged).
+    for (const t of list) {
+      if (t.sealClass === undefined) continue;
+      if (!SEAL_CLASSES.includes(t.sealClass)) return problem(res, 422, "invalid-seal-class", "The seal class is invalid", path);
+      if (!t.sealNumber) return problem(res, 422, "validation", "Validation failed", path);
+    }
+    const min = SEAL_CLASSES.indexOf(policy.minimumSealClass);
+    if (min >= 0 && list.some((t) => t.sealNumber && SEAL_CLASSES.indexOf(t.sealClass) < min)) return problem(res, 409, "seal-class-too-low", "The seal class is below the minimum of the site", path);
     const mismatch = appt?.seal && list.some((t) => t.sealNumber && t.sealNumber !== appt.seal);
     if (mismatch && policy.sealMismatchAction === "REJECT") {
       visits.push({ ...visit, state: "REJECTED", rejectionReason: "SEAL_MISMATCH" });

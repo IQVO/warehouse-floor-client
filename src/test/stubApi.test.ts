@@ -219,6 +219,95 @@ describe("stub-api: yard-management", () => {
     expect(rejected.json).toMatchObject({ visit: { state: "REJECTED", rejectionReason: "SEAL_MISMATCH" }, trailers: [], moves: [] });
   });
 
+  // yard-management ADR 0012: `minimumSealClass` of the site yard policy, I below S below H.
+  it("a site with a minimum seal class refuses a weaker or unclassified seal, admits a sufficient one and never judges a trailer with no seal", async () => {
+    await call(stub, "POST", "/__stub/reset");
+    const sealed = (plate: string, unit: string, extra: object) => checkIn({ tractorPlate: plate, purpose: "DROP", trailers: [trailerIn(unit, extra)] });
+
+    // No minimum (the default): a seal with no class is admitted as before, and the class is read back when stated.
+    const before = await sealed("M0", "MIN-0", { sealNumber: "SL-0" });
+    expect(before.status).toBe(201);
+    expect(before.json.trailers[0].seal).toEqual({ number: "SL-0", state: "INTACT", class: null });
+    expect((await sealed("M1", "MIN-1", { sealNumber: "SL-1", sealClass: "I" })).json.trailers[0].seal).toEqual({ number: "SL-1", state: "INTACT", class: "I" });
+
+    expect((await call(stub, "POST", "/__stub/yard-policy", { minimumSealClass: "S" })).json).toMatchObject({ minimumSealClass: "S" });
+    const visitsBefore = (await call(stub, "GET", `${Y}/visits?siteId=WH1`)).json.items.length;
+    const trailersBefore = (await call(stub, "GET", `${Y}/trailers?siteId=WH1`)).json.items.length;
+    for (const extra of [{ sealNumber: "SL-2" }, { sealNumber: "SL-2", sealClass: "I" }]) {
+      const low = await sealed("M2", "MIN-2", extra);
+      expect(low.status).toBe(409);
+      expect(low.type).toContain("application/problem+json");
+      expect(problemSlug(low.json)).toBe("seal-class-too-low");
+    }
+    // A refused check-in persists nothing.
+    expect((await call(stub, "GET", `${Y}/visits?siteId=WH1`)).json.items).toHaveLength(visitsBefore);
+    expect((await call(stub, "GET", `${Y}/trailers?siteId=WH1`)).json.items).toHaveLength(trailersBefore);
+
+    const equal = await sealed("M2", "MIN-2", { sealNumber: "SL-2", sealClass: "S" });
+    expect(equal.status).toBe(201);
+    expect(equal.json.trailers[0].seal).toEqual({ number: "SL-2", state: "INTACT", class: "S" });
+    expect((await sealed("M3", "MIN-3", { sealNumber: "SL-3", sealClass: "H" })).status).toBe(201);
+    const noSeal = await sealed("M4", "MIN-4", {});
+    expect(noSeal.status).toBe(201);
+    expect(noSeal.json.trailers[0].seal).toEqual({ number: null, state: "NONE", class: null });
+  });
+
+  it("refuses an unknown seal class and a class with no seal number", async () => {
+    await call(stub, "POST", "/__stub/reset");
+    const slug = async (extra: object) => {
+      const r = await checkIn({ tractorPlate: "X1", purpose: "DROP", trailers: [trailerIn("BAD-1", extra)] });
+      return [r.status, problemSlug(r.json)];
+    };
+    expect(await slug({ sealNumber: "SL-9", sealClass: "X" })).toEqual([422, "invalid-seal-class"]);
+    expect(await slug({ sealNumber: "SL-9", sealClass: "h" })).toEqual([422, "invalid-seal-class"]);
+    expect(await slug({ sealClass: "H" })).toEqual([422, "validation"]);
+    expect((await call(stub, "GET", `${Y}/visits?siteId=WH1`)).json.items).toHaveLength(0);
+  });
+
+  // yard-management ADR 0016: the site lever `suspendedCarrierAction` (NONE by default) and the carrier copy.
+  it("a suspended carrier is admitted by default, flagged under FLAG, and under REJECT recorded as a REJECTED visit and answered 409", async () => {
+    await call(stub, "POST", "/__stub/reset");
+    const arrive = (plate: string, unit: string, extra: object = { carrierScac: "SUSP" }) => checkIn({ tractorPlate: plate, purpose: "DROP", trailers: [trailerIn(unit, { sealNumber: "SL-1" })], ...extra });
+    const rejected = async () => (await call(stub, "GET", `${Y}/visits?siteId=WH1&state=REJECTED`)).json.items;
+
+    const none = await arrive("C0", "SUS-0");
+    expect(none.status).toBe(201);
+    expect(none.json.visit).toMatchObject({ state: "CHECKED_IN", carrierFlag: null });
+
+    await call(stub, "POST", "/__stub/yard-policy", { suspendedCarrierAction: "FLAG" });
+    const flagged = await arrive("C1", "SUS-1");
+    expect(flagged.status).toBe(201);
+    expect(flagged.json.visit).toMatchObject({ state: "CHECKED_IN", carrierFlag: "SUSPENDED" });
+
+    // REJECT, with a minimum seal class as well: the carrier rule comes first and the seal is not judged.
+    await call(stub, "POST", "/__stub/yard-policy", { suspendedCarrierAction: "REJECT", minimumSealClass: "H" });
+    const trailersBefore = (await call(stub, "GET", `${Y}/trailers?siteId=WH1`)).json.items.length;
+    const turned = await arrive("C2", "SUS-2");
+    expect(turned.status).toBe(409);
+    expect(turned.type).toContain("application/problem+json");
+    expect(problemSlug(turned.json)).toBe("carrier-suspended");
+    expect(turned.json).toMatchObject({ status: 409, title: "The carrier is suspended", instance: `${Y}/visits` });
+    expect(turned.json.detail).toMatch(/SCAC SUSP is suspended; visit visit-stub-\d+ is recorded as REJECTED/);
+    const record = await rejected();
+    expect(record).toHaveLength(1);
+    expect(has(record[0], REQUIRED.visit)).toBe(true);
+    expect(record[0]).toMatchObject({ state: "REJECTED", rejectionReason: "CARRIER_SUSPENDED", tractorPlate: "C2", carrierScac: "SUSP", trailersIn: [] });
+    expect((await call(stub, "GET", `${Y}/trailers?siteId=WH1`)).json.items).toHaveLength(trailersBefore); // no trailer persisted
+
+    // What the client must never cause: the same truck sent as a NEW request is a second turn-away on record.
+    expect(problemSlug((await arrive("C2", "SUS-2")).json)).toBe("carrier-suspended");
+    expect(await rejected()).toHaveLength(2);
+
+    // The rule judges the SCAC the check-in declares: another carrier, or none, is not turned away by it.
+    expect(problemSlug((await arrive("C3", "SUS-3", { carrierScac: "ACME" })).json)).toBe("seal-class-too-low");
+    expect(problemSlug((await arrive("C4", "SUS-4", {})).json)).toBe("seal-class-too-low");
+    expect(await rejected()).toHaveLength(2);
+
+    // The checks that come before the carrier rule still refuse first, and record nothing.
+    expect(problemSlug((await arrive("C1", "SUS-9")).json)).toBe("visit-already-open");
+    expect(await rejected()).toHaveLength(2);
+  });
+
   it("pages lists with limit and nextCursor", async () => {
     await call(stub, "POST", "/__stub/reset");
     await checkIn({ tractorPlate: "P1", purpose: "DROP", trailers: [trailerIn("PG-1"), trailerIn("PG-2")] });

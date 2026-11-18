@@ -45,8 +45,10 @@ export function useYardPrefs(): [YardPrefs, (patch: Partial<YardPrefs>) => void]
  * Hands the screen the answer of every yard command that was settled by a
  * REPLAY (offline, lost answer, reload), so it shows that answer exactly as it
  * would for a direct tap. Direct submits are handled where they are awaited.
+ * The handler answers whether this screen showed it: a yard command of another
+ * yard screen is not shown here, and the global notices speak for it instead.
  */
-export function useYardSettled(handler: (entry: OutboxEntry, outcome: Outcome) => void): void {
+export function useYardSettled(handler: (entry: OutboxEntry, outcome: Outcome) => boolean): void {
   const { runner } = useServices();
   const latest = useRef(handler);
   useEffect(() => {
@@ -54,9 +56,7 @@ export function useYardSettled(handler: (entry: OutboxEntry, outcome: Outcome) =
   });
   useEffect(
     () =>
-      runner.onSettled((entry, outcome) => {
-        if (entry.kind.startsWith("yard-")) latest.current(entry, outcome);
-      }),
+      runner.onSettled((entry, outcome) => entry.kind.startsWith("yard-") && latest.current(entry, outcome)),
     [runner],
   );
 }

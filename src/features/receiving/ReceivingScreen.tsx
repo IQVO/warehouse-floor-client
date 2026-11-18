@@ -115,9 +115,10 @@ export function ReceivingScreen() {
   useEffect(
     () =>
       runner.onSettled((entry, outcome) => {
-        if (entry.meta.receiptId !== receiptId) return;
-        if (entry.kind === "receive-scan") handleOutcome(outcome, "scan");
-        else if (entry.kind === "close-receipt") handleOutcome(outcome, "close");
+        // Another receipt's command is not shown here: saying so lets the global notices speak for it.
+        if (entry.meta.receiptId !== receiptId || (entry.kind !== "receive-scan" && entry.kind !== "close-receipt")) return false;
+        handleOutcome(outcome, entry.kind === "receive-scan" ? "scan" : "close");
+        return true;
       }),
     [runner, receiptId, handleOutcome],
   );
