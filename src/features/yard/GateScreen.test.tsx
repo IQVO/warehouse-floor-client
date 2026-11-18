@@ -336,14 +336,72 @@ describe("gate clerk: check in", () => {
     expect(await screen.findByRole("heading", { name: "ABC1234 is turned away" })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("This carrier is suspended, so the truck is turned away.");
     expect(screen.queryByText(/Try again/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Check in this truck" })).not.toBeInTheDocument();
     expect(h2.outbox.list()).toHaveLength(0);
     await h2.services.runner.flush();
     const sent = h2.fetchStub.callsTo(`POST ${YB}/visits`);
     expect(sent).toHaveLength(1);
     expect(sent[0]?.headers["idempotency-key"]).toBe(key);
-    await user.click(screen.getByRole("button", { name: "Start the next truck" }));
+    // The reload emptied the form, so that truck is not in it: nothing to take away, the next truck can be typed.
+    expect(screen.getByLabelText("Tractor plate")).toHaveValue("");
+    expect(screen.queryByRole("button", { name: "Start the next truck" })).not.toBeInTheDocument();
+    await user.click(within(screen.getByRole("alert")).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("heading", { name: "ABC1234 is turned away" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Check in this truck" })).toBeEnabled();
+  });
+
+  // The clerk does not wait for the network: truck A is saved, truck B is being typed when A's answer arrives.
+  it("a turn-away answered on a replay for an EARLIER truck is announced without touching the truck being typed, which is then sent once", async () => {
+    const h = atGate(createHarness({ online: false }));
+    h.fetchStub.on(`POST ${YB}/visits`, (call) => ((call.body as { tractorPlate: string }).tractorPlate === "ABC1234" ? SUSPENDED() : jsonResponse(201, checkIn({ visit: visit({ tractorPlate: "XYZ9" }) }))));
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await fillCheckIn(user);
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    await screen.findByText(/Your check-in is saved on this device/);
+    // Truck B, typed over A and not sent.
+    for (const [label, text] of [["Carrier", "Good Haulage"], ["Carrier code (optional)", "good"], ["Tractor plate", "xyz9"]] as const) {
+      await user.clear(screen.getByLabelText(label));
+      await user.type(screen.getByLabelText(label), text);
+    }
+    await user.clear(screen.getByLabelText("Seal number 1 (optional)"));
+    await user.type(screen.getByLabelText("Seal number 1 (optional)"), "S-777");
+    await user.selectOptions(screen.getByLabelText("Seal strength 1 (optional)"), "H");
+
+    h.connectivity.setBrowserOnline(true);
+    window.dispatchEvent(new Event("online"));
+    expect(await screen.findByRole("heading", { name: "ABC1234 is turned away" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("The turn-away is already recorded.");
+    expect(screen.queryByText(/saved on this device/)).not.toBeInTheDocument();
+
+    // B is untouched and still the clerk's to send.
+    expect(screen.getByLabelText("Carrier")).toHaveValue("Good Haulage");
+    expect(screen.getByLabelText("Carrier code (optional)")).toHaveValue("good");
+    expect(screen.getByLabelText("Tractor plate")).toHaveValue("xyz9");
+    expect(screen.getByLabelText("Kind of trailer 1")).toHaveValue("DRY_VAN");
+    expect(screen.getByLabelText("Seal number 1 (optional)")).toHaveValue("S-777");
+    expect(screen.getByLabelText("Seal strength 1 (optional)")).toHaveValue("H");
+    expect(screen.queryByRole("button", { name: "Start the next truck" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Check in this truck" }));
+    expect(await screen.findByText("XYZ9 is checked in.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "ABC1234 is turned away" })).toBeInTheDocument(); // still announced until dismissed
+    const plates = h.fetchStub.callsTo(`POST ${YB}/visits`).map((c) => (c.body as { tractorPlate: string }).tractorPlate);
+    expect(plates).toEqual(["ABC1234", "XYZ9"]);
+    expect(h.fetchStub.callsTo(`POST ${YB}/visits`)[1]?.body).toMatchObject({ carrier: "Good Haulage", carrierScac: "GOOD", trailers: [{ sealNumber: "S-777", sealClass: "H" }] });
+    expect(h.outbox.list()).toHaveLength(0);
+  });
+
+  it("a replayed turn-away for a truck with the same plate at another site does not take the form either", async () => {
+    const h = atGate(createHarness({ online: false }));
+    h.outbox.put({ key: "k-other", kind: "yard-check-in", method: "POST", path: `${YB}/visits`, body: { siteId: "WH2", carrier: "Acme", tractorPlate: "ABC1234", purpose: "BOBTAIL" }, dedupeId: "yard-check-in:WH2:ABC1234", meta: { siteId: "WH2", tractorPlate: "ABC1234" }, createdAt: 1, attempts: 1 });
+    h.fetchStub.on(`POST ${YB}/visits`, SUSPENDED());
+    const user = userEvent.setup({ delay: null });
+    renderApp(h, "/yard/gate");
+    await user.type(screen.getByLabelText("Tractor plate"), "abc1234");
+    h.connectivity.setBrowserOnline(true);
+    window.dispatchEvent(new Event("online"));
+    expect(await screen.findByRole("heading", { name: "ABC1234 is turned away" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Tractor plate")).toHaveValue("abc1234");
   });
 
   it("two saved check-ins of suspended carriers answered one after another: both trucks are named, each was sent once", async () => {
@@ -467,11 +525,18 @@ describe("gate clerk: check in", () => {
 describe("withTurnAway", () => {
   const message = { tone: "warning" as const, what: "w", todo: "t" };
   it("names each turned-away plate once, oldest first, and adds nothing for a command that carried no plate", () => {
-    const one = withTurnAway(null, "AAA1", message);
+    const one = withTurnAway(null, "AAA1", message, false);
     expect(one.tractorPlates).toEqual(["AAA1"]);
-    expect(withTurnAway(withTurnAway(one, "BBB2", message), "AAA1", message).tractorPlates).toEqual(["BBB2", "AAA1"]);
-    expect(withTurnAway(null, "", message).tractorPlates).toEqual([]);
-    expect(withTurnAway(one, "", message).tractorPlates).toEqual(["AAA1"]);
+    expect(withTurnAway(withTurnAway(one, "BBB2", message, false), "AAA1", message, false).tractorPlates).toEqual(["BBB2", "AAA1"]);
+    expect(withTurnAway(null, "", message, false).tractorPlates).toEqual([]);
+    expect(withTurnAway(one, "", message, false).tractorPlates).toEqual(["AAA1"]);
+  });
+
+  it("takes the form away once the truck in it was turned away, and keeps it away for later announcements", () => {
+    expect(withTurnAway(null, "AAA1", message, false).blocking).toBe(false);
+    const blocked = withTurnAway(withTurnAway(null, "AAA1", message, false), "BBB2", message, true);
+    expect(blocked.blocking).toBe(true);
+    expect(withTurnAway(blocked, "CCC3", message, false).blocking).toBe(true);
   });
 
   it("titles the card for no plate, one plate and several", () => {

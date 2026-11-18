@@ -69,7 +69,9 @@ export function DockScreen() {
   }, []);
 
   useYardSettled((entry, outcome) => {
-    if (["yard-door-start", "yard-door-complete", "yard-complete-move"].includes(entry.kind)) answered(entry.kind, outcome);
+    if (!["yard-door-start", "yard-door-complete", "yard-complete-move"].includes(entry.kind)) return false;
+    answered(entry.kind, outcome);
+    return true;
   });
 
   async function run(kind: string, command: () => Promise<Outcome>) {

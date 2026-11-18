@@ -217,7 +217,9 @@ describe("a queued check-in answered 409 carrier-suspended on replay", () => {
     stub.on(VISITS, yardProblem(409, "carrier-suspended", "The carrier is suspended"));
     const runner = runnerOn(store, stub, "b");
     const heard: { kind: string; plate: string | undefined; state: string; slug: string }[] = [];
-    runner.onSettled((entry, outcome) => heard.push({ kind: entry.kind, plate: entry.meta.tractorPlate, state: outcome.state, slug: outcome.state === "problem" ? problemCode(outcome.problem) : "" }));
+    runner.onSettled((entry, outcome) => {
+      heard.push({ kind: entry.kind, plate: entry.meta.tractorPlate, state: outcome.state, slug: outcome.state === "problem" ? problemCode(outcome.problem) : "" });
+    });
     await runner.flush();
 
     expect(heard).toEqual([{ kind: "yard-check-in", plate: "ABC1234", state: "problem", slug: "carrier-suspended" }]);

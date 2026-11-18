@@ -92,7 +92,9 @@ export function HostlerScreen() {
   );
 
   useYardSettled((entry, outcome) => {
-    if (entry.kind === "yard-claim" || entry.kind === "yard-complete-move") answered(entry.kind, outcome, entry.meta, true);
+    if (entry.kind !== "yard-claim" && entry.kind !== "yard-complete-move") return false;
+    answered(entry.kind, outcome, entry.meta, true);
+    return true;
   });
 
   // After a reload or a lost answer, ask the service which move this hostler holds: it is the truth.

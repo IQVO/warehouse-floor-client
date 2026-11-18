@@ -152,10 +152,12 @@ export function StationProvider({ children }: { children: ReactNode }) {
   // Commands that were saved while offline settle here, minutes or a reload later.
   useEffect(() => {
     return runner.onSettled((entry: OutboxEntry, outcome) => {
-      // Only this context's commands. A receiving or yard command that settles is answered by its own screen in
-      // its own words; the shared copy here would add a second notice, and for an unknown slug "Try again".
-      if (!entry.path.startsWith(`${FULFILLMENT_BASE}/`)) return;
+      // Only this context's commands, and all of them: this provider is always mounted, so it answers `true`.
+      // A receiving or yard command is shown by its own screen, or by SettledNotices when that is not in view;
+      // the shared copy here would be the wrong words (for a slug it does not know, "Try again").
+      if (!entry.path.startsWith(`${FULFILLMENT_BASE}/`)) return false;
       apply(entry.kind, entry.meta, outcome, true);
+      return true;
     });
   }, [runner, apply]);
 

@@ -4,7 +4,7 @@ import type { Message } from "../../api/problemMessages";
 import { LOAD_STATES, PURPOSES, SEAL_CLASSES, TRAILER_KINDS, type CheckIn, type YardManagementApi } from "../../api/yardManagement";
 import { ScanInput } from "../../components/ScanInput";
 import type { Outcome } from "../../lib/commands";
-import { bringsTrailers, buildCheckIn, emptyCheckIn, emptyTrailer, type CheckInDraft, type TrailerDraft } from "./checkInRules";
+import { bringsTrailers, buildCheckIn, emptyTrailer, type CheckInDraft, type TrailerDraft } from "./checkInRules";
 import { purposeText, SEAL_CLASS_TEXT } from "./yardFormat";
 import { readYardCode } from "./yardScan";
 import { VisitFields } from "./VisitFields";
@@ -12,20 +12,26 @@ import { VisitFields } from "./VisitFields";
 const KIND_TEXT: Record<string, string> = { DRY_VAN: "Dry van", REEFER: "Reefer", FLATBED: "Flatbed", CONTAINER: "Container" };
 const LOAD_TEXT: Record<string, string> = { EMPTY: "Empty", LOADED: "Loaded", PARTIAL: "Part loaded" };
 
-/** Gate clerk: check a visit in. The trailer unit numbers are scanned; the rest is typed. */
+/**
+ * Gate clerk: check a visit in. The trailer unit numbers are scanned; the rest is typed.
+ * The gate screen holds what is typed (`draft`): it is the one that knows when a truck is finished.
+ */
 export function CheckInForm({
   siteId,
   api,
+  draft,
+  onDraft: setDraft,
   onOutcome,
   onNotice,
 }: {
   siteId: string;
   api: YardManagementApi;
+  draft: CheckInDraft;
+  onDraft: (update: (draft: CheckInDraft) => CheckInDraft) => void;
   /** `tractorPlate` is the plate as it was sent, so the screen can name the truck the answer is about. */
-  onOutcome: (outcome: Outcome<CheckIn>, reset: () => void, tractorPlate: string) => void;
+  onOutcome: (outcome: Outcome<CheckIn>, tractorPlate: string) => void;
   onNotice: (message: Message | null) => void;
 }) {
-  const [draft, setDraft] = useState<CheckInDraft>(emptyCheckIn);
   const [busy, setBusy] = useState(false);
 
   const named = draft.appointmentId.trim() !== "";
@@ -53,7 +59,7 @@ export function CheckInForm({
     }
     setBusy(true);
     try {
-      onOutcome(await api.checkInVisit(built.body), () => setDraft(emptyCheckIn), built.body.tractorPlate);
+      onOutcome(await api.checkInVisit(built.body), built.body.tractorPlate);
     } finally {
       setBusy(false);
     }

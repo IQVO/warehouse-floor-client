@@ -33,7 +33,12 @@ export type Outcome<T = unknown> =
   /** No answer, and (persist:false) not saved either. */
   | { state: "unsent"; reason: RetryReason };
 
-export type SettledListener = (entry: OutboxEntry, outcome: Outcome) => void;
+/**
+ * Hears every answer that arrives on a replay. It answers `true` when it showed that answer to the operator;
+ * anything else means "not mine" (see `onUnhandledSettled`).
+ */
+export type SettledListener = (entry: OutboxEntry, outcome: Outcome) => boolean | void;
+export type UnhandledSettledListener = (entry: OutboxEntry, outcome: Outcome) => void;
 
 export interface RunnerOptions {
   outbox: Outbox;
@@ -72,6 +77,7 @@ export class CommandRunner {
   private readonly retryIntervalMs: number;
   private readonly maxAttempts: number;
   private readonly listeners = new Set<SettledListener>();
+  private readonly unhandledListeners = new Set<UnhandledSettledListener>();
   private readonly inFlight = new Map<string, Promise<Attempt>>();
   private flushing: Promise<void> | null = null;
 
@@ -90,6 +96,22 @@ export class CommandRunner {
   onSettled(listener: SettledListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * Called for a replayed answer that no `onSettled` listener said it showed (the screen that owns the command
+   * is not in view). The entry is already out of the outbox, so this is the last chance to tell the operator.
+   */
+  onUnhandledSettled(listener: UnhandledSettledListener): () => void {
+    this.unhandledListeners.add(listener);
+    return () => this.unhandledListeners.delete(listener);
+  }
+
+  /** Every listener hears the answer; the fallback listeners hear it only when none of them showed it. */
+  private announce(entry: OutboxEntry, outcome: Outcome): void {
+    let shown = false;
+    for (const l of [...this.listeners]) if (l(entry, outcome) === true) shown = true;
+    if (!shown) for (const l of [...this.unhandledListeners]) l(entry, outcome);
   }
 
   async submit<T = unknown>(spec: CommandSpec): Promise<Outcome<T>> {
@@ -237,7 +259,7 @@ export class CommandRunner {
     const outcome = await readOutcome(response);
     // Any other answer is final for this action: the entry is done with.
     if (persisted) this.outbox.remove(entry.key);
-    if (notify) for (const l of [...this.listeners]) l(entry, outcome);
+    if (notify) this.announce(entry, outcome);
     return { kind: "response", outcome };
   }
 
