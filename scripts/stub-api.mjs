@@ -28,7 +28,9 @@
 //
 // Test controls (not part of the real API):
 //   POST /__stub/reset               clear all state, reseed tasks and the yard
-//   POST /__stub/yard-policy         yard seal policy: {"sealMismatchAction":"REJECT"|"FLAG"}
+//   POST /__stub/yard-policy         site yard policy, merged: {"sealMismatchAction":"REJECT"|"FLAG",
+//                                    "minimumSealClass":null|"I"|"S"|"H", "suspendedCarrierAction":"NONE"|"FLAG"|"REJECT"}
+//                                    (suspended carrier of the stub: SCAC SUSP; see scripts/stub-yard.mjs)
 //   POST /__stub/tasks               add a task (JSON: a TaskResponse-like object)
 //   POST /__stub/drop-next-response  apply the next command, then cut the connection before answering
 //   GET  /__stub/log                 every command received (method, path, key, body, replayed)
