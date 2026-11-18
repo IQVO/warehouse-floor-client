@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { describeProblem, describeQueued, describeUnsent, type Message } from "../../api/problemMessages";
-import { fulfillmentApi, type PickScanResult, type Station, type Task } from "../../api/fulfillmentExecution";
+import { FULFILLMENT_BASE, fulfillmentApi, type PickScanResult, type Station, type Task } from "../../api/fulfillmentExecution";
 import { useServices } from "../../app/servicesContext";
 import type { Outcome } from "../../lib/commands";
 import type { OutboxEntry } from "../../lib/outbox";
@@ -152,6 +152,9 @@ export function StationProvider({ children }: { children: ReactNode }) {
   // Commands that were saved while offline settle here, minutes or a reload later.
   useEffect(() => {
     return runner.onSettled((entry: OutboxEntry, outcome) => {
+      // Only this context's commands. A receiving or yard command that settles is answered by its own screen in
+      // its own words; the shared copy here would add a second notice, and for an unknown slug "Try again".
+      if (!entry.path.startsWith(`${FULFILLMENT_BASE}/`)) return;
       apply(entry.kind, entry.meta, outcome, true);
     });
   }, [runner, apply]);
