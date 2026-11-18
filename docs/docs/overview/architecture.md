@@ -120,7 +120,9 @@ the runner, which replays whatever a previous page load left behind, on the
   outbox (`wfc.outbox.v1`) are in `localStorage`. The lease deadline is stored
   in the local clock, so a reload keeps the countdown.
 - **Outcomes applied in one place.** `StationProvider.apply` handles an answer
-  whether it arrived directly or from an outbox replay minutes later.
+  whether it arrived directly or from an outbox replay minutes later. It
+  listens to replays of fulfillment-execution commands only; a receiving or
+  yard command that settles is answered by its own screen, in its own words.
 - **Injectable services.** `createServices(overrides)` is the seam tests use for
   a fresh store, clock and `fetch`.
 - **UI kit.** Layout is `@warehouse/ui-kit`'s `AppShell`, `Card` and

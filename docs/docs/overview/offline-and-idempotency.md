@@ -32,7 +32,7 @@ Order of events for a command, in `CommandRunner.submit`:
 
 ## Definitive vs retryable
 
-- **Definitive** (entry removed, reported to the operator): every 2xx and every 4xx. Retrying a `409` or `422` cannot change the answer.
+- **Definitive** (entry removed, reported to the operator): every 2xx and every 4xx. Retrying a `409` or `422` cannot change the answer. One 4xx must never be sent again for a stronger reason: yard-management's `409 carrier-suspended` is answered after the `REJECTED` visit is recorded, so each new request would record another. On a replay it ends like any 4xx (entry removed, the listeners told once), and the gate screen then removes the truck's form ([Yard flow](/docs/overview/yard-flow#turned-away-by-the-service-carrier-suspended)).
 - **Retryable** (entry kept, same key): network failure, timeout (15 s), `429`, `500`, `502`, `503`, `504`. A `500` can be thrown after the command was applied and only the response was lost; every resend carries the entry's key, so replaying it cannot double-apply.
 
 ## Attempt cap and stuck entries
