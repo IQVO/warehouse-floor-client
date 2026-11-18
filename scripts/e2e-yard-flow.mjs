@@ -15,6 +15,8 @@
 // a minimum seal strength (refused with none stated, admitted once the clerk states it)
 // and a suspended carrier (turned away and on record once, online and after an offline
 // replay; the truck's form is gone, so a stray tap or Enter cannot record it twice).
+// A turn-away replayed for an EARLIER truck leaves the truck being typed alone, and one
+// replayed while the clerk is on another screen is said there, once, in the yard's words.
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
 
@@ -235,6 +237,47 @@ try {
   expect((await checkInsOf("SUSP77")).length === 1 && replayed.length === 1, "replayed refusal: sent once, never retried, one REJECTED visit on record");
   await shot("10-turned-away-after-replay");
   await page.getByRole("button", { name: "Start the next truck" }).click();
+
+  // An EARLIER truck's turn-away arrives while the next truck is being typed: that typing is not touched.
+  await suspendedTruck("susp66", "E2E-SUSP-3");
+  await context.setOffline(true);
+  await page.getByText("You are offline").waitFor();
+  await page.getByRole("button", { name: "Check in this truck" }).click();
+  await page.getByText(/Your check-in is saved on this device/).waitFor();
+  await page.getByLabel("Carrier", { exact: true }).fill("Good Haulage");
+  await page.getByLabel("Carrier code (optional)").fill("good");
+  await page.getByLabel("Tractor plate").fill("good11");
+  await context.setOffline(false);
+  await page.getByRole("heading", { name: "SUSP66 is turned away" }).waitFor({ timeout: 20000 });
+  expect(
+    (await page.getByLabel("Tractor plate").inputValue()) === "good11" && (await page.getByLabel("Carrier", { exact: true }).inputValue()) === "Good Haulage" && (await page.getByLabel("Kind of trailer 1").inputValue()) === "DRY_VAN",
+    "an earlier truck's replayed turn-away is announced and the truck being typed is left as it was",
+  );
+  await shot("11-earlier-truck-turned-away");
+  await page.getByRole("button", { name: "Check in this truck" }).click();
+  await page.getByText("GOOD11 is checked in.").waitFor();
+  const good = await visitsOf("GOOD11");
+  expect(
+    (await checkInsOf("GOOD11")).length === 1 && good.length === 1 && good[0].state === "CHECKED_IN" && (await checkInsOf("SUSP66")).length === 1 && (await visitsOf("SUSP66", "REJECTED")).length === 1,
+    "the typed truck was sent once and admitted; the earlier one was sent once and is one REJECTED visit",
+  );
+
+  // The turn-away arrives while the clerk is on another screen: said there, once, in the yard's words.
+  await page.getByRole("heading", { name: "SUSP66 is turned away" }).getByText("SUSP66").waitFor();
+  await suspendedTruck("susp44", "E2E-SUSP-4");
+  await context.setOffline(true);
+  await page.getByText("You are offline").waitFor();
+  await page.getByRole("button", { name: "Check in this truck" }).click();
+  await page.getByText(/Your check-in is saved on this device/).waitFor();
+  await nav("Station");
+  await context.setOffline(false);
+  await page.getByText("Saved check-in (truck SUSP44): This carrier is suspended, so the truck is turned away. The turn-away is already recorded.").waitFor({ timeout: 20000 });
+  expect((await page.getByText(/Try again/).count()) === 0 && (await page.getByText(/Saved check-in/).count()) === 1, "off-screen replay: one global notice in the yard's words, naming the truck, with no advice to try again");
+  await shot("12-turned-away-off-screen");
+  await page.waitForTimeout(6500);
+  expect((await checkInsOf("SUSP44")).length === 1 && (await visitsOf("SUSP44", "REJECTED")).length === 1, "off-screen replay: sent once, never retried, one REJECTED visit on record");
+  await nav("Gate");
+  expect((await page.getByText(/Saved check-in \(truck SUSP44\)/).count()) === 1 && (await page.getByRole("heading", { name: /is turned away/ }).count()) === 0, "back at the gate the notice is still the only one (no second presentation), until it is dismissed");
   await stub("yard-policy", { minimumSealClass: null, suspendedCarrierAction: "NONE" });
 
   // ---- the rules of the repo ----
