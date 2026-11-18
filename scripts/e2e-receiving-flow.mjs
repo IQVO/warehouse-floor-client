@@ -49,6 +49,9 @@ try {
   await page.goto(`${BASE}/receiving`);
   await page.getByRole("link", { name: "rcpt-stub-1" }).click();
   await page.getByText("ASN-1001").waitFor();
+  // The list shows ASN-1001 too, so that wait can pass before the receipt screen is up; the first wedge scan
+  // would then be typed at the list's link and lost. Wait for the scan field of the receipt screen itself.
+  await page.getByLabel("Scan now").waitFor();
   expect(true, "open receipt listed under /receiving and opened with no station or task claim");
 
   // ---- carton SSCC: eaches come from the server ----
