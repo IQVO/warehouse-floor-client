@@ -57,7 +57,7 @@ When a scan answers `UnlabelledCarton`, every carton in the answer without an `s
 
 ## Commands, keys and retries
 
-- `receive-scan`: `dedupeId = receive-scan:<receiptId>:<scanId>` with a fresh `scanId` per physical scan, so scanning the same code twice is two actions with two keys (two cases are two cases). One scan saved offline, or whose answer was lost, is replayed with **its own** key, also after a reload. The replayed answer is shown when it arrives.
+- `receive-scan`: `dedupeId = receive-scan:<receiptId>:<scanId>` with a fresh `scanId` per physical scan, so scanning the same code twice is two actions with two keys (two cases are two cases). One scan saved offline, or whose answer was lost, is replayed with **its own** key, also after a reload. The replayed answer is shown when it arrives: by this screen when the scan belongs to the receipt on screen, otherwise by a global notice led by "Saved scan (receipt `<id>`):" in the same words, for a refusal and for a scan that was not booked or carries a finding ([Who shows a replayed answer](/docs/overview/offline-and-idempotency#who-shows-a-replayed-answer)).
 - `close-receipt`: `dedupeId = close-receipt:<receiptId>`, one logical action per receipt.
 - Reads (`GET` receipt, list, label) are plain fetches: no key, no outbox. Offline, the receipt cannot be (re)loaded; scans can still be taken and are queued.
 - `If-Match` is not sent: with several operators on one receipt a stale value would refuse scans for no benefit; the service serialises writes (`409 concurrent-modification`, copy: "scan again").
