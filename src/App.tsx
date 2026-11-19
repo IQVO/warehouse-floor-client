@@ -8,6 +8,9 @@ import { StationProvider } from "./features/station/StationProvider";
 import { StationScreen } from "./features/station/StationScreen";
 import { ReceivingListScreen } from "./features/receiving/ReceivingListScreen";
 import { ReceivingScreen } from "./features/receiving/ReceivingScreen";
+import { DockScreen } from "./features/yard/DockScreen";
+import { GateScreen } from "./features/yard/GateScreen";
+import { HostlerScreen } from "./features/yard/HostlerScreen";
 import { TaskScreen } from "./features/task/TaskScreen";
 
 /** Routes inside the providers + router; tests mount this under a MemoryRouter. */
@@ -19,6 +22,9 @@ export function AppRoutes() {
         <Route path="task" element={<TaskScreen />} />
         <Route path="receiving" element={<ReceivingListScreen />} />
         <Route path="receiving/:receiptId" element={<ReceivingScreen />} />
+        <Route path="yard/gate" element={<GateScreen />} />
+        <Route path="yard/hostler" element={<HostlerScreen />} />
+        <Route path="yard/dock" element={<DockScreen />} />
         <Route path="*" element={<NotFoundScreen />} />
       </Route>
     </Routes>

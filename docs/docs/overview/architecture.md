@@ -59,6 +59,7 @@ StationProvider                             applies outcomes to persisted statio
    v
 fulfillmentApi(runner)                      src/api/fulfillmentExecution.ts: builds CommandSpecs
 inboundReceivingApi(runner)                 src/api/inboundReceiving.ts
+yardManagementApi(runner)                   src/api/yardManagement.ts
    |
    v
 CommandRunner  <---- Outbox (localStorage)  src/lib/commands.ts, src/lib/outbox.ts
@@ -70,15 +71,16 @@ fetch("/api/<context>/...")  ---->  Kong  ---->  owning context
 | Directory | Holds | React? |
 |---|---|---|
 | `src/lib/` | `commands` (runner), `outbox`, `connectivity`, `idempotency`, `scan`, `problem`, `log`, `storage`, `format`; `gs1/` (parser, check digit, resolver), `barcode/` (Code 128 and GS1-128 encoder) | no |
-| `src/api/` | `fulfillmentExecution` and `inboundReceiving` clients (command builders, types, `getJson` reads), `problemMessages` and `receivingMessages` (operator text) | no |
+| `src/api/` | `fulfillmentExecution`, `inboundReceiving` and `yardManagement` clients (command builders, types, `getJson` reads), `problemMessages`, `receivingMessages` and `yardMessages` (operator text) | no |
 | `src/app/` | `servicesContext` (`Services`: store, outbox, connectivity, runner, `fetchFn`, clock), `ServicesProvider`, `Layout`, `RouterLink`, `NotFoundScreen` | yes |
 | `src/components/` | `ScanInput`, `OfflineBanner`, `NoticeBar`, `LeaseCountdown`, `Barcode128` | yes |
 | `src/features/station/` | `StationProvider`, `StationScreen`, `stationState`, `parseCapabilities` | yes |
 | `src/features/task/` | `TaskScreen`, `confirmPlan`, `scanCopy` | yes |
 | `src/features/receiving/` | `ReceivingListScreen`, `ReceivingScreen`, `LabelCard`, `scanToRequest` | yes |
+| `src/features/yard/` | `GateScreen` (`CheckInForm`, `RejectForm`, `CheckOutPanel`), `HostlerScreen` (`MoveLease`), `DockScreen` (`DoorWorkCard`), shared `MoveCompletion`, `yardScan` (location and unit scans through `parseScan`), `checkInRules`, `hostlerState`, `yardPrefs` | yes |
 | `src/pwa/` | `register` (service worker registration, production only) | no |
 | `public/`, `build/` | manifest, icons, hand-written `sw.js`; the Vite plugin `precacheManifest` | n/a |
-| `scripts/` | stub API and the two Playwright flows | n/a |
+| `scripts/` | stub API and the three Playwright flows | n/a |
 
 ## Routes
 
@@ -91,6 +93,9 @@ the `OfflineBanner` and the `NoticeBar` above every screen.
 | `/task` | `TaskScreen` | task |
 | `/receiving` | `ReceivingListScreen` | receiving |
 | `/receiving/:receiptId` | `ReceivingScreen` | receiving |
+| `/yard/gate` | `GateScreen` | yard |
+| `/yard/hostler` | `HostlerScreen` | yard |
+| `/yard/dock` | `DockScreen` | yard |
 | `*` | `NotFoundScreen` | app |
 
 `OutboxReplay` (in `App.tsx`) attaches connectivity to the window and starts
@@ -115,7 +120,11 @@ the runner, which replays whatever a previous page load left behind, on the
   outbox (`wfc.outbox.v1`) are in `localStorage`. The lease deadline is stored
   in the local clock, so a reload keeps the countdown.
 - **Outcomes applied in one place.** `StationProvider.apply` handles an answer
-  whether it arrived directly or from an outbox replay minutes later.
+  whether it arrived directly or from an outbox replay minutes later. It
+  shows replays of fulfillment-execution commands only. A replayed receiving
+  or yard command is shown by its own screen when that is in view, and by
+  `SettledNotices` (in `Layout`) when it is not: once, in its own context's
+  words (see Offline and idempotency, "Who shows a replayed answer").
 - **Injectable services.** `createServices(overrides)` is the seam tests use for
   a fresh store, clock and `fetch`.
 - **UI kit.** Layout is `@warehouse/ui-kit`'s `AppShell`, `Card` and

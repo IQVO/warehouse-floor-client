@@ -47,8 +47,8 @@ npm ci
 | `npm test` | vitest, jsdom |
 | `npm run build` | `tsc -b && vite build`, then stamps the precache list into `dist/sw.js` |
 | `npm run preview` | serves `dist/` on `:5174` with the same `/api` proxy (the service worker is registered here, not in `dev`) |
-| `npm run stub-api` | in-memory fulfillment-execution and inbound-receiving on `:8787` |
-| `npm run e2e:station`, `npm run e2e:receiving` | headless Chromium flows against the dev server and the stub |
+| `npm run stub-api` | in-memory fulfillment-execution, inbound-receiving and yard-management on `:8787` |
+| `npm run e2e:station`, `npm run e2e:receiving`, `npm run e2e:yard` | headless Chromium flows against the dev server and the stub |
 | `make docs` | this site: in `docs/`, `npm ci`, `npm run typecheck`, `npm run build` |
 | `make check` | `lint typecheck test build docs`: what CI runs |
 | `make image` | `docker build --build-context uikit=../warehouse-ui-kit -t warehouse-floor-client .` |
@@ -78,6 +78,17 @@ lines). In the browser:
    Other seeded scans: `340123450000000024` (mixed carton),
    `340123450000000031` (over the limit), case GTIN `13041090004824` (no
    carton label, `UnlabelledCarton`), each GTIN `03041090004827`.
+4. **Gate** (`/yard/gate`): site `WH1`; check in a live unload with carrier,
+   plate, appointment `appt-stub-1`, purpose *Live unload*, scan the unit
+   number (any text, e.g. `TRL-1`), choose kind and load state. The answer says
+   where the driver goes (`WH1-DOCK-IN-01`).
+5. **Dock** (`/yard/dock`): pick the trailer under *Drivers bringing their own
+   trailer*, scan `WH1-DOCK-IN-01`, **Complete move**; then **Start door work**
+   and **Complete door work**. Back on the gate, **Check out** the truck.
+6. **Hostler** (`/yard/hostler`): site `WH1`, any hostler id, **Claim next
+   move** (the stub seeds a relocation of `SEED-TRL-1` to `WH1-YARD-02`), scan
+   `WH1-YARD-02`, **Complete move**. Scan another place to see the reason
+   field. `npm run e2e:yard` drives all of it.
 
 Try the offline path: stop the stub, press Complete, restart the stub. The
 banner appears, the command is saved ("Completion saved on this device") and
@@ -109,8 +120,9 @@ curl -s -X POST http://localhost:8787/__stub/reset
 `POST /__stub/drop-next-response` applies the next command and cuts the
 connection before answering, which proves the client reuses its key. The stub
 implements stations, `task-claims`, `lease-renewals`, `completions`, queue depth and
-the receiving endpoints; it does not implement the pick-scan or `case-breaks`
-endpoints.
+the receiving endpoints and yard-management (visits, rejections, check-outs,
+trailers, moves, claims, completions, door work; site `WH1`); it does not
+implement the pick-scan or `case-breaks` endpoints.
 
 ## Run it against the cluster
 

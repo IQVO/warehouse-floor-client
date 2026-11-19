@@ -36,11 +36,14 @@ each API publishes and sends the commands each API accepts, as a downstream
 | Hold a task with a visible lease that renews itself | Task, `/task` (`LeaseCountdown`) | fulfillment-execution | [Station flow](./station-flow.md) |
 | Confirm a pick by scanning each item or case, complete PICK, RELOCATE and REPLENISH, break a sealed case | Task, `/task` | fulfillment-execution | [Station flow](./station-flow.md) |
 | Receive cartons, cases and items against a receipt, audit a mixed carton, close the receipt, print an unlabelled carton's label | Receiving, `/receiving` and `/receiving/:receiptId` | inbound-receiving | [Receiving flow](./receiving-flow.md) |
+| Gate clerk: check a visit in (scan the trailer units), reject at the gate, check out | Gate, `/yard/gate` | yard-management | [Yard flow](./yard-flow.md) |
+| Hostler: claim the next move, see from/to/why/due and the lease, complete it with the scanned place | Hostler, `/yard/hostler` | yard-management | [Yard flow](./yard-flow.md) |
+| Dock operator: trailers at doors, start and complete door work, complete a visiting driver's move | Dock, `/yard/dock` | yard-management | [Yard flow](./yard-flow.md) |
 | Keep working when the network drops: banner, persisted outbox, replay with the original key | every screen | n/a | [Offline and idempotency](./offline-and-idempotency.md) |
 | Load the app shell with no network | service worker (`public/sw.js`) | n/a | [Offline and idempotency](./offline-and-idempotency.md) |
 
-The three feature folders are `src/features/station`, `src/features/task` and
-`src/features/receiving`; shared pieces are `ScanInput`, `OfflineBanner`,
+The four feature folders are `src/features/station`, `src/features/task`,
+`src/features/receiving` and `src/features/yard`; shared pieces are `ScanInput`, `OfflineBanner`,
 `NoticeBar`, `LeaseCountdown` and `Barcode128` under `src/components`.
 
 ## What it owns, and what it does not
@@ -94,6 +97,7 @@ The repo has no ADRs; its decisions are the numbered rules in the README
 | understand keys, the outbox and the service worker | [Offline and idempotency](./offline-and-idempotency.md) |
 | follow a station through a task | [Station flow](./station-flow.md) |
 | follow a receipt through the dock | [Receiving flow](./receiving-flow.md) |
+| follow a truck through the yard | [Yard flow](./yard-flow.md) |
 | configure or deploy it | [Configuration](/docs/operations/configuration), [Runbook](/docs/operations/runbook) |
 | debug it | [Troubleshooting](/docs/operations/troubleshooting) |
 | run and extend the tests | [Testing](/docs/development/testing) |

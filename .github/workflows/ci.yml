@@ -88,6 +88,19 @@ jobs:
         if: github.event_name != 'pull_request' || github.base_ref != 'develop'
         run: npx --yes oxlint@1.90.0 -c .oxlintrc.file-length.json . || true
 
+  # Agent-guide sensor (harness-template v4): skills load, references resolve, context budget,
+  # plus repo_lint (config sensors) and the hook unit tests. BLOCKING: the guides are clean.
+  guide-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - run: python3 scripts/harness/guide_lint.py
+      - run: python3 scripts/harness/repo_lint.py
+      - run: python3 scripts/harness/test_hook.py
+      - run: python3 scripts/harness/test_red_issue.py
+      - run: python3 scripts/harness/test_repo_lint.py
+
   test:
     runs-on: ubuntu-latest
     steps:

@@ -32,8 +32,31 @@ Order of events for a command, in `CommandRunner.submit`:
 
 ## Definitive vs retryable
 
-- **Definitive** (entry removed, reported to the operator): every 2xx and every 4xx. Retrying a `409` or `422` cannot change the answer.
+- **Definitive** (entry removed, reported to the operator): every 2xx and every 4xx. Retrying a `409` or `422` cannot change the answer. One 4xx must never be sent again for a stronger reason: yard-management's `409 carrier-suspended` is answered after the `REJECTED` visit is recorded, so each new request would record another. On a replay it ends like any 4xx (entry removed, shown once as described below), and the gate screen takes away the form of that truck, never the form of another ([Yard flow](/docs/overview/yard-flow#turned-away-by-the-service-carrier-suspended)).
 - **Retryable** (entry kept, same key): network failure, timeout (15 s), `429`, `500`, `502`, `503`, `504`. A `500` can be thrown after the command was applied and only the response was lost; every resend carries the entry's key, so replaying it cannot double-apply.
+
+## Who shows a replayed answer
+
+An answer the operator waited for is shown by the screen that awaited it. An answer that arrives on a **replay** (reconnect, interval, reload) has no caller, and by the time it is known the entry has left the outbox. The rule: **every refusal, and every accepted answer the operator must act on, is shown exactly once, in the words of the context that owns the command, whichever screen is in view.**
+
+Mechanism (`CommandRunner` in `src/lib/commands.ts`):
+
+- `onSettled(listener)`: every listener hears every replayed answer and returns `true` when it showed it to the operator.
+- `onUnhandledSettled(listener)`: called only when no `onSettled` listener returned `true`.
+
+| Command of | Shown by, when in view | Otherwise |
+|---|---|---|
+| fulfillment-execution | `StationProvider` (always mounted) in the notice bar, shared table `problemMessages.ts`. It answers `true` for its own commands and ignores the others | never unhandled |
+| inbound-receiving | `ReceivingScreen` when the entry's `meta.receiptId` is the receipt on screen | global notice, `receivingMessages.ts`, led by "Saved scan (receipt `<id>`):" |
+| yard-management | the yard screen that owns the kind (gate: check-in, reject, check-out; hostler: claim, move completion; dock: door work, move completion) | global notice, `yardMessages.ts`, led by "Saved check-in (truck `<PLATE>`):" and the like |
+
+The global notices are `SettledNotices` (`src/app/SettledNotices.tsx`, in `Layout` under the notice bar); the words come from `describeSettled` (`src/app/settledFallback.ts`), which picks the context by the entry's path and calls `describeYardSettled` or `describeReceivingSettled`. Each notice stays until it is dismissed, also across screens; a later one never replaces an earlier one, and an identical one is counted ("This happened 3 times.") instead of stacked. They are kept in memory, like every notice.
+
+What the global notices say:
+
+- **Every refusal** (any problem answer), in the owning context's words. A slug that context's table does not know falls back to the service title and "Try again", as it does on the screen.
+- **Accepted answers the operator must act on:** a gate command (a driver is waiting: where each trailer goes after a check-in, a `REJECTED` visit as a turn-away, a recorded rejection, a check-out), a hostler claim (a lease is running), and a receiving scan the service did not book or flagged with a finding.
+- **Not announced:** a scan that was simply received, a closed receipt, a completed move, a door-work step. The pending count in the offline banner going down is their signal.
 
 ## Attempt cap and stuck entries
 
@@ -77,7 +100,7 @@ A command queued by an older build holds the old path (for example `.../tasks/t-
 
 Cache names are versioned by a content hash of the shell; old ones are deleted on activate. `nginx.conf` serves `sw.js`, `index.html` and the manifest with `no-cache`.
 
-Tests: `src/pwa/sw.test.ts` (loads `public/sw.js` into a sandbox and asserts the table above), `src/lib/lib.test.ts` (key reuse, persistence, replay order), `src/lib/outboxRetry.test.ts` (retryable 500/abort, attempt cap, stuck entries), `src/components/StuckOutboxBanner.test.tsx`, and the offline cases in `src/features/**/*.test.tsx` and `scripts/e2e-station-flow.mjs`.
+Tests: `src/pwa/sw.test.ts` (loads `public/sw.js` into a sandbox and asserts the table above), `src/lib/lib.test.ts` (key reuse, persistence, replay order), `src/lib/settledHandled.test.ts` and `src/app/SettledNotices.test.tsx` (who shows a replayed answer), `src/lib/outboxRetry.test.ts` (retryable 500/abort, attempt cap, stuck entries), `src/components/StuckOutboxBanner.test.tsx`, and the offline cases in `src/features/**/*.test.tsx` and `scripts/e2e-station-flow.mjs`.
 
 ## inbound-receiving (receiving dock)
 

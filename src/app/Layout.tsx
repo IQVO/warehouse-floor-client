@@ -5,11 +5,14 @@ import { OfflineBanner } from "../components/OfflineBanner";
 import { StuckOutboxBanner } from "../components/StuckOutboxBanner";
 import { useStation } from "../features/station/stationState";
 import { RouterLink } from "./RouterLink";
+import { SettledNotices } from "./SettledNotices";
 
 /**
  * App chrome: the ui-kit shell (brand + nav), then, above every screen, the
- * offline banner and the last action's result. Both are always visible so an
- * operator never has to scroll to learn the connection is down.
+ * offline banner, the last action's result and the answers of replayed
+ * commands whose own screen was not in view. They are always visible so an
+ * operator never has to scroll to learn the connection is down, or that
+ * something saved earlier was refused.
  */
 export function Layout() {
   const { pathname } = useLocation();
@@ -18,6 +21,9 @@ export function Layout() {
     { id: "station", label: "Station", href: "/", active: pathname === "/" },
     { id: "task", label: held ? "Task \u2022" : "Task", href: "/task", active: pathname === "/task" },
     { id: "receiving", label: "Receiving", href: "/receiving", active: pathname.startsWith("/receiving") },
+    { id: "yard-gate", label: "Gate", href: "/yard/gate", active: pathname === "/yard/gate" },
+    { id: "yard-hostler", label: "Hostler", href: "/yard/hostler", active: pathname === "/yard/hostler" },
+    { id: "yard-dock", label: "Dock", href: "/yard/dock", active: pathname === "/yard/dock" },
   ];
   return (
     <NavigationProvider link={RouterLink}>
@@ -26,6 +32,7 @@ export function Layout() {
           <OfflineBanner />
           <StuckOutboxBanner />
           <NoticeBar />
+          <SettledNotices />
           <Outlet />
         </div>
       </AppShell>
