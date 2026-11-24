@@ -40,6 +40,6 @@ jobs:
           queries: security-extended
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@3ea37a44b6e4e6847c46edae209410d258d548d1
+        uses: github/codeql-action/analyze@bed9c837cf3ee3c3114274787a1f2172d3d46956
         with:
           category: "/language:${{ matrix.language }}"
